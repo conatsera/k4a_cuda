@@ -5,17 +5,17 @@
 
 using namespace testing;
 
-static K4A_CudaPointCloud* g_K4A_CPC;
+static K4A_CudaPointCloud* g_CPC;
 
-class k4a_cuda_ut : public ::testing::Test
+class k4a_demo_ut : public ::testing::Test
 {
 protected:
 	float4* floats;
 
 	void SetUp() override
 	{
-		if (g_K4A_CPC == nullptr)
-			g_K4A_CPC = new K4A_CudaPointCloud();
+		if (g_CPC == nullptr)
+			g_CPC = new K4A_CudaPointCloud();
 	}
 	
 	void TearDown() override
@@ -24,25 +24,11 @@ protected:
 	}
 };
 
-TEST_F(k4a_cuda_ut, get_skeletons)
-{
-	for (int i = 0; i < 1024; i++)
-	{
-		g_K4A_CPC->GetCapture();
-		float3* joints = g_K4A_CPC->GetSkeletonJoints();
-		int skeleton_count = g_K4A_CPC->GetSkeletonCount();
-		//float4* joint_rots = g_K4A_CPC->GetSkeletonJointsRots();
-		for (int j = 0; j < skeleton_count; j++)
-		{
-			printf("%f\n", joints[j * K4ABT_JOINT_WRIST_RIGHT].x);
-		}
-	}
-}
 
-TEST_F(k4a_cuda_ut, get_floats)
+TEST_F(k4a_demo_ut, get_floats)
 {
-	g_K4A_CPC->GetCapture();
-	floats = g_K4A_CPC->GeneratePointCloud();
+	g_CPC->GetCapture();
+	floats = g_CPC->GeneratePointCloud();
 
 	int nonzerocount = 0;
 	int nancount = 0;
@@ -61,6 +47,22 @@ TEST_F(k4a_cuda_ut, get_floats)
 	}
 
 	printf("%d %d", nonzerocount, nancount);
+}
+
+TEST_F(k4a_demo_ut, get_skeletons)
+{
+	for (int i = 0; i < 1024; i++)
+	{
+		g_CPC->GetCapture();
+		g_CPC->GetSkeletons();
+		int skel_count = g_CPC->GetSkeletonCount();
+		if (skel_count != 0) {
+			for (int skel_id = 0; skel_id < skel_count; skel_id++) {
+				k4abt_skeleton_t skeleton = g_CPC->GetSkeleton(skel_id);
+				printf("%f\n", skeleton.joints[K4ABT_JOINT_WRIST_RIGHT].position.xyz.x);
+			}
+		}
+	}
 }
 
 int main(int argc, char** argv) {

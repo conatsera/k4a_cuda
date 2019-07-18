@@ -1,7 +1,7 @@
 ﻿# CMakeList.txt : CMake project for k4a_cuda, include source and define
 # project specific logic here.
 #
-cmake_minimum_required (VERSION 3.9.0)
+cmake_minimum_required (VERSION 3.14.0)
 
 # Add source to this project's executable.
 add_library (k4a_cuda STATIC "k4a_cuda.cu" "k4a_cuda.cuh")

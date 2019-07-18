@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
+#include "k4abttypes.h"
+
 struct float4 {
 	float x;
 	float y;
@@ -8,11 +10,13 @@ struct float4 {
 	float w;
 };
 
-extern "C" __declspec(dllimport) float4* get_point_cloud();
-
 extern "C" __declspec(dllimport) void init_cpc();
 
-TEST(k4a_cuda_dll_ut, get_floats)
+extern "C" __declspec(dllimport) float4* get_point_cloud();
+
+extern "C" __declspec(dllimport) k4abt_skeleton_t get_skeleton();
+
+TEST(k4a_demo_win_ut, get_floats)
 {
 	init_cpc();
 

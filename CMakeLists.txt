@@ -1,7 +1,7 @@
 ﻿# CMakeList.txt : Top-level CMake project file, do global configuration
 # and include sub-projects here.
 #
-cmake_minimum_required (VERSION 3.9.0)
+cmake_minimum_required (VERSION 3.14.0)
 
 project ("k4a_cuda" LANGUAGES CXX CUDA VERSION 0.1)
 
@@ -13,13 +13,9 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-# Before CMake 3.14 setting CMAKE_POSITION_INDEPENDENT_CODE did not set the
-# "-pie" flag for GCC or Clang
-if("${CMAKE_VERSION}" VERSION_LESS "3.14.0")
-    if ("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang" OR "${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pie")
-    endif()
-endif()
+
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
 
 # For code, link against the static crt on windows
 if ("${CMAKE_C_COMPILER_ID}" STREQUAL "MSVC")

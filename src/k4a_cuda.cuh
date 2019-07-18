@@ -7,6 +7,7 @@
 
 #include "k4a/k4a.h"
 #include "k4abt.h"
+#include "k4abttypes.h"
 
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -15,31 +16,17 @@
 
 #include <cstdio>
 
-//#include <cstdio>
-
 constexpr int kThreadXSize = 512;
 constexpr int kThreadYSize = 512;
 
 constexpr int kSize = kThreadXSize * kThreadYSize;
 
-typedef struct joint {
-	double3 position;
-	double4 orientation;
-} joint_t;
+#define MAX_TRACKED_SKELETONS 4
 
-typedef struct skeleton {
-	joint_t head;
-	joint_t waist;
-	joint_t right_wrist;
-	joint_t left_wrist;
-	joint_t right_ankle;
-	joint_t left_ankle;
-} skeleton_t;
-
-typedef struct skeleton_group {
-	int count;
-	skeleton_t* skeletons;
-} skeleton_group_t;
+typedef struct _k4a_skeleton_group_t
+{
+	k4abt_skeleton_t skeletons[MAX_TRACKED_SKELETONS];
+} k4a_skeleton_group_t;
 
 class K4A_CudaPointCloud {
 public:
@@ -50,24 +37,23 @@ public:
 
 	float4* GeneratePointCloud();
 	int GetSkeletonCount();
-	float3* GetSkeletonJoints();
-	float4* GetSkeletonJointsRots();
+	void GetSkeletons();
+	k4abt_skeleton_t GetSkeleton(int skel_id);
 private:
 	k4a_device_t device = NULL;
 
 	k4a_calibration_t sensor_calibration;
 	int dots;
 
-	k4a_wait_result_t get_capture_result;
 	k4a_capture_t capture = NULL;
-
 	k4abt_tracker_t tracker = NULL;
-
-	int skeleton_count;
-	float4* joint_rots;
 
 	float2* h_xy_table;
 	float4* h_point_cloud;
+
+	k4abt_frame_t body_frame = NULL;
+	int skeleton_count;
+	k4a_skeleton_group_t skeleton_group;
 
 	void CreateXYTable();
 };

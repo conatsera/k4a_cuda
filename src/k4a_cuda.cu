@@ -20,7 +20,7 @@ void K4ALogger(void* ctx, k4a_log_level_t logLevel, const char* file, const int 
 	printf("%d %s:%d %s", logLevel, file, line, message);
 }
 
-void ConstantInitFloat (float* data, int size, float val)
+void ConstantInitFloat(float* data, int size, float val)
 {
 	for (int i = 0; i < size; ++i)
 	{
@@ -47,13 +47,6 @@ void ConstantInitFloat4(float4* data, int size, float4 val)
 K4A_CudaPointCloud::K4A_CudaPointCloud()
 {
 	bool success = true;
-
-	/*
-	if (k4a_set_debug_message_handler(K4ALogger, NULL, K4A_LOG_LEVEL_ERROR) != K4A_RESULT_SUCCEEDED)
-	{
-		//printf("Set K4A to OpenVR log handler failed!\n");
-		success = false;
-	};*/
 
 	k4a_device_configuration_t device_config = K4A_DEVICE_CONFIG_INIT_DISABLE_ALL;
 	device_config.depth_mode = K4A_DEPTH_MODE_WFOV_2X2BINNED;
@@ -86,7 +79,7 @@ K4A_CudaPointCloud::K4A_CudaPointCloud()
 
 		if (k4abt_tracker_create(&sensor_calibration, &tracker) != K4A_RESULT_SUCCEEDED)
 		{
-			printf("Body tracker initialization failed!\n");
+			printf("Start tracker failed!\n");
 		}
 	}
 }
@@ -96,7 +89,6 @@ K4A_CudaPointCloud::~K4A_CudaPointCloud()
 	k4a_capture_release(capture);
 	k4a_device_stop_cameras(device);
 	k4a_device_close(device);
-	k4abt_tracker_destroy(tracker);
 	delete h_xy_table;
 	delete h_point_cloud;
 }
@@ -134,12 +126,12 @@ void K4A_CudaPointCloud::CreateXYTable()
 
 void K4A_CudaPointCloud::GetCapture()
 {
-	get_capture_result = k4a_device_get_capture(device, &capture, K4A_WAIT_INFINITE);
+	k4a_device_get_capture(device, &capture, K4A_WAIT_INFINITE);
 }
 
 float4* K4A_CudaPointCloud::GeneratePointCloud()
 {
-    // Probe for a depth16 image
+	// Probe for a depth16 image
 	k4a_image_t depth_image = k4a_capture_get_depth_image(capture);
 	if (depth_image == nullptr)
 	{
@@ -167,7 +159,7 @@ float4* K4A_CudaPointCloud::GeneratePointCloud()
 	cudaMemcpy(d_depth_data, depth_data, kSize * sizeof(uint16_t), cudaMemcpyHostToDevice);
 	cudaMemcpy(d_xy_table, h_xy_table, kSize * sizeof(float2), cudaMemcpyHostToDevice);
 
-	k4a_point_cloud_adjust<<<512, 512>>>(d_depth_data, d_xy_table, d_point_cloud);
+	k4a_point_cloud_adjust << <512, 512 >> > (d_depth_data, d_xy_table, d_point_cloud);
 	cudaDeviceSynchronize();
 
 	cudaMemcpy(h_point_cloud, d_point_cloud, kSize * sizeof(float4), cudaMemcpyDeviceToHost);
@@ -186,129 +178,55 @@ int K4A_CudaPointCloud::GetSkeletonCount()
 	return skeleton_count;
 }
 
-float3* K4A_CudaPointCloud::GetSkeletonJoints()
+void K4A_CudaPointCloud::GetSkeletons()
 {
-	float3* skeleton_joints;
 	skeleton_count = 0;
 
-	if (get_capture_result == K4A_WAIT_RESULT_SUCCEEDED)
+	k4a_wait_result_t queue_capture_result = k4abt_tracker_enqueue_capture(tracker, capture, K4A_WAIT_INFINITE);
+	//k4a_capture_release(sensor_capture);
+	if (queue_capture_result == K4A_WAIT_RESULT_TIMEOUT)
 	{
-		k4a_wait_result_t queue_capture_result = k4abt_tracker_enqueue_capture(tracker, capture, K4A_WAIT_INFINITE);
-		//k4a_capture_release(sensor_capture);
-		if (queue_capture_result == K4A_WAIT_RESULT_TIMEOUT)
-		{
-			// It should never hit timeout when K4A_WAIT_INFINITE is set.
-			printf("Error! Add capture to tracker process queue timeout!\n");
-		}
-		else if (queue_capture_result == K4A_WAIT_RESULT_FAILED)
-		{
-			printf("Error! Add capture to tracker process queue failed!\n");
-		}
-
-		k4abt_frame_t body_frame = NULL;
-		
-		k4a_wait_result_t pop_frame_result = k4abt_tracker_pop_result(tracker, &body_frame, K4A_WAIT_INFINITE);
-		if (pop_frame_result == K4A_WAIT_RESULT_SUCCEEDED)
-		{
-			size_t num_bodies = k4abt_frame_get_num_bodies(body_frame);
-			printf("%zu bodies are detected!\n", num_bodies);
-
-			skeleton_joints = (float3*)malloc(sizeof(float3) * (num_bodies * 6));
-			joint_rots = (float4*)malloc(sizeof(float4) * (num_bodies * 6));
-
-			for (int i = 0; i < num_bodies; i++)
-			{
-				k4abt_skeleton_t body_skeleton;
-				k4a_result_t get_body_result = k4abt_frame_get_body_skeleton(body_frame, i, &body_skeleton);
-				if (get_body_result == K4A_RESULT_SUCCEEDED)
-				{
-					if (i < 4)
-					{
-						skeleton_count++;
-
-						skeleton_joints[i * K4ABT_JOINT_HEAD].x = (body_skeleton.joints[K4ABT_JOINT_HEAD].position.xyz.x / (float)1000.0);
-						skeleton_joints[i * K4ABT_JOINT_HEAD].y = (body_skeleton.joints[K4ABT_JOINT_HEAD].position.xyz.y / (float)1000.0);
-						skeleton_joints[i * K4ABT_JOINT_HEAD].z = (body_skeleton.joints[K4ABT_JOINT_HEAD].position.xyz.z / (float)1000.0);
-
-						skeleton_joints[i * K4ABT_JOINT_PELVIS].x = (body_skeleton.joints[K4ABT_JOINT_PELVIS].position.xyz.x / (float)1000.0);
-						skeleton_joints[i * K4ABT_JOINT_PELVIS].y = (body_skeleton.joints[K4ABT_JOINT_PELVIS].position.xyz.y / (float)1000.0);
-						skeleton_joints[i * K4ABT_JOINT_PELVIS].z = (body_skeleton.joints[K4ABT_JOINT_PELVIS].position.xyz.z / (float)1000.0);
-
-						skeleton_joints[i * K4ABT_JOINT_WRIST_RIGHT].x = (body_skeleton.joints[K4ABT_JOINT_WRIST_RIGHT].position.xyz.x / (float)1000.0);
-						skeleton_joints[i * K4ABT_JOINT_WRIST_RIGHT].y = (body_skeleton.joints[K4ABT_JOINT_WRIST_RIGHT].position.xyz.y / (float)1000.0);
-						skeleton_joints[i * K4ABT_JOINT_WRIST_RIGHT].z = (body_skeleton.joints[K4ABT_JOINT_WRIST_RIGHT].position.xyz.z / (float)1000.0);
-
-						skeleton_joints[i * K4ABT_JOINT_WRIST_LEFT].x = (body_skeleton.joints[K4ABT_JOINT_WRIST_LEFT].position.xyz.x / (float)1000.0);
-						skeleton_joints[i * K4ABT_JOINT_WRIST_LEFT].y = (body_skeleton.joints[K4ABT_JOINT_WRIST_LEFT].position.xyz.y / (float)1000.0);
-						skeleton_joints[i * K4ABT_JOINT_WRIST_LEFT].z = (body_skeleton.joints[K4ABT_JOINT_WRIST_LEFT].position.xyz.z / (float)1000.0);
-
-						skeleton_joints[i * K4ABT_JOINT_ANKLE_RIGHT].x = (body_skeleton.joints[K4ABT_JOINT_ANKLE_RIGHT].position.xyz.x / (float)1000.0);
-						skeleton_joints[i * K4ABT_JOINT_ANKLE_RIGHT].y = (body_skeleton.joints[K4ABT_JOINT_ANKLE_RIGHT].position.xyz.y / (float)1000.0);
-						skeleton_joints[i * K4ABT_JOINT_ANKLE_RIGHT].z = (body_skeleton.joints[K4ABT_JOINT_ANKLE_RIGHT].position.xyz.z / (float)1000.0);
-
-						skeleton_joints[i * K4ABT_JOINT_ANKLE_LEFT].x = (body_skeleton.joints[K4ABT_JOINT_ANKLE_LEFT].position.xyz.x / (float)1000.0);
-						skeleton_joints[i * K4ABT_JOINT_ANKLE_LEFT].y = (body_skeleton.joints[K4ABT_JOINT_ANKLE_LEFT].position.xyz.y / (float)1000.0);
-						skeleton_joints[i * K4ABT_JOINT_ANKLE_LEFT].z = (body_skeleton.joints[K4ABT_JOINT_ANKLE_LEFT].position.xyz.z / (float)1000.0);
-
-
-						joint_rots[i * K4ABT_JOINT_HEAD].w = (body_skeleton.joints[K4ABT_JOINT_HEAD].orientation.wxyz.w / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_HEAD].x = (body_skeleton.joints[K4ABT_JOINT_HEAD].orientation.wxyz.x / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_HEAD].y = (body_skeleton.joints[K4ABT_JOINT_HEAD].orientation.wxyz.y / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_HEAD].z = (body_skeleton.joints[K4ABT_JOINT_HEAD].orientation.wxyz.z / (float)1000.0);
-
-						joint_rots[i * K4ABT_JOINT_PELVIS].w = (body_skeleton.joints[K4ABT_JOINT_PELVIS].orientation.wxyz.w / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_PELVIS].x = (body_skeleton.joints[K4ABT_JOINT_PELVIS].orientation.wxyz.x / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_PELVIS].y = (body_skeleton.joints[K4ABT_JOINT_PELVIS].orientation.wxyz.y / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_PELVIS].z = (body_skeleton.joints[K4ABT_JOINT_PELVIS].orientation.wxyz.z / (float)1000.0);
-
-						joint_rots[i * K4ABT_JOINT_WRIST_RIGHT].w = (body_skeleton.joints[K4ABT_JOINT_WRIST_RIGHT].orientation.wxyz.w / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_WRIST_RIGHT].x = (body_skeleton.joints[K4ABT_JOINT_WRIST_RIGHT].orientation.wxyz.x / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_WRIST_RIGHT].y = (body_skeleton.joints[K4ABT_JOINT_WRIST_RIGHT].orientation.wxyz.y / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_WRIST_RIGHT].z = (body_skeleton.joints[K4ABT_JOINT_WRIST_RIGHT].orientation.wxyz.z / (float)1000.0);
-
-						joint_rots[i * K4ABT_JOINT_WRIST_LEFT].w = (body_skeleton.joints[K4ABT_JOINT_WRIST_LEFT].orientation.wxyz.w / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_WRIST_LEFT].x = (body_skeleton.joints[K4ABT_JOINT_WRIST_LEFT].orientation.wxyz.x / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_WRIST_LEFT].y = (body_skeleton.joints[K4ABT_JOINT_WRIST_LEFT].orientation.wxyz.y / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_WRIST_LEFT].z = (body_skeleton.joints[K4ABT_JOINT_WRIST_LEFT].orientation.wxyz.z / (float)1000.0);
-
-						joint_rots[i * K4ABT_JOINT_ANKLE_RIGHT].w = (body_skeleton.joints[K4ABT_JOINT_ANKLE_RIGHT].orientation.wxyz.w / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_ANKLE_RIGHT].x = (body_skeleton.joints[K4ABT_JOINT_ANKLE_RIGHT].orientation.wxyz.x / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_ANKLE_RIGHT].y = (body_skeleton.joints[K4ABT_JOINT_ANKLE_RIGHT].orientation.wxyz.y / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_ANKLE_RIGHT].z = (body_skeleton.joints[K4ABT_JOINT_ANKLE_RIGHT].orientation.wxyz.z / (float)1000.0);
-
-						joint_rots[i * K4ABT_JOINT_ANKLE_LEFT].w = (body_skeleton.joints[K4ABT_JOINT_ANKLE_LEFT].orientation.wxyz.w / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_ANKLE_LEFT].x = (body_skeleton.joints[K4ABT_JOINT_ANKLE_LEFT].orientation.wxyz.x / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_ANKLE_LEFT].y = (body_skeleton.joints[K4ABT_JOINT_ANKLE_LEFT].orientation.wxyz.y / (float)1000.0);
-						joint_rots[i * K4ABT_JOINT_ANKLE_LEFT].z = (body_skeleton.joints[K4ABT_JOINT_ANKLE_LEFT].orientation.wxyz.z / (float)1000.0);
-					}
-				}
-			}
-
-			k4abt_frame_release(body_frame);
-		}
-		else if (pop_frame_result == K4A_WAIT_RESULT_TIMEOUT)
-		{
-			//  It should never hit timeout when K4A_WAIT_INFINITE is set.
-			printf("Error! Pop body frame result timeout!\n");
-		}
-		else
-		{
-			printf("Pop body frame result failed!\n");
-		}
+		// It should never hit timeout when K4A_WAIT_INFINITE is set.
+		printf("Error! Add capture to tracker process queue timeout!\n");
 	}
-	else if (get_capture_result == K4A_WAIT_RESULT_TIMEOUT)
+	else if (queue_capture_result == K4A_WAIT_RESULT_FAILED)
 	{
-		// It should never hit time out when K4A_WAIT_INFINITE is set.
-		printf("Error! Get depth frame time out!\n");
+		printf("Error! Add capture to tracker process queue failed!\n");
+	}
+
+	k4a_wait_result_t pop_frame_result = k4abt_tracker_pop_result(tracker, &body_frame, K4A_WAIT_INFINITE);
+	if (pop_frame_result == K4A_WAIT_RESULT_SUCCEEDED)
+	{
+		size_t num_bodies = k4abt_frame_get_num_bodies(body_frame);
+		printf("%zu bodies are detected!\n", num_bodies);
+
+		for (int i = 0; i < num_bodies && i < MAX_TRACKED_SKELETONS; i++)
+		{
+			k4a_result_t get_body_result = k4abt_frame_get_body_skeleton(body_frame, i, &skeleton_group.skeletons[skeleton_count]);
+			if (get_body_result == K4A_RESULT_SUCCEEDED)
+			{
+				skeleton_count++;
+			}
+		}
+
+		for (int skel_id = skeleton_count; skel_id < MAX_TRACKED_SKELETONS; skel_id++) {
+			skeleton_group.skeletons[skel_id] = k4abt_skeleton_t();
+		}
+
+		k4abt_frame_release(body_frame);
+	}
+	else if (pop_frame_result == K4A_WAIT_RESULT_TIMEOUT)
+	{
+		//  It should never hit timeout when K4A_WAIT_INFINITE is set.
+		printf("Error! Pop body frame result timeout!\n");
 	}
 	else
 	{
-		printf("Get depth capture returned error: %d\n", get_capture_result);
+		printf("Pop body frame result failed!\n");
 	}
-	return skeleton_joints;
 }
 
-float4* K4A_CudaPointCloud::GetSkeletonJointsRots()
+k4abt_skeleton_t K4A_CudaPointCloud::GetSkeleton(int skel_id)
 {
-	return joint_rots;
+	return skeleton_group.skeletons[skel_id];
 }

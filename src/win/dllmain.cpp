@@ -7,36 +7,36 @@
 #include <windows.h>
 #include <cinttypes>
 
-K4A_CudaPointCloud* K4A_CPC;
+K4A_CudaPointCloud* area;
 
 extern "C" __declspec(dllexport) void init_cpc()
 {
-	K4A_CPC = new K4A_CudaPointCloud();
+	area = new K4A_CudaPointCloud();
 }
 
 extern "C" __declspec(dllexport) void get_capture()
 {
-	K4A_CPC->GetCapture();
+	area->GetCapture();
 }
 
 extern "C" __declspec(dllexport) float4* get_point_cloud()
 {
-	return K4A_CPC->GeneratePointCloud();
-}
-
-extern "C" __declspec(dllexport) float3* get_skeleton_joints()
-{
-	return K4A_CPC->GetSkeletonJoints();
+	return area->GeneratePointCloud();
 }
 
 extern "C" __declspec(dllexport) int get_skeleton_count()
 {
-	return K4A_CPC->GetSkeletonCount();
+	return area->GetSkeletonCount();
 }
 
-extern "C" __declspec(dllexport) float4* get_skeleton_joints_rots()
+extern "C" __declspec(dllexport) void get_skeletons()
 {
-	return K4A_CPC->GetSkeletonJointsRots();
+	area->GetSkeletons();
+}
+
+extern "C" __declspec(dllexport) k4abt_skeleton_t get_skeleton(int skel_id)
+{
+	return area->GetSkeleton(skel_id);
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule,
