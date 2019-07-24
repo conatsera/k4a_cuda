@@ -4,13 +4,13 @@ This library performs the point cloud calculation in CUDA as described in the SD
 
 # Script example
 ```c#
-    [DllImport("k4a_demo_win.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [DllImport("k4a_cuda_win.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern void init_cpc();
 
-    [DllImport("k4a_demo_win.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [DllImport("k4a_cuda_win.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern void get_capture();
 
-    [DllImport("k4a_demo_win.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [DllImport("k4a_cuda_win.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern float4* get_point_cloud();
     
     void Start()
@@ -45,6 +45,7 @@ This library performs the point cloud calculation in CUDA as described in the SD
 * This project has been build and tested using CUDA 10.1 and Visual Studio 16 2019
 * dnn_model.onnx is not path-searched and is required with your application (in "\<output\>/\<Name\>_Data/" for Unity)
 * Calculating and displaying approximately 6M points per second, running a DNN model, and running a game engine does require a fairly powerful system. I've had success (albeit with a 1/4 to 1/2 second delay) on a GTX 960M and with minimal delay on GTX 1080
+* Set your CUDA version with -DCMAKE_CUDA_COMPILER="\<path-to-cuda/bin\>/nvcc.exe""
 
 ## Further work
 * As with the last point above, there are several place I could optimize my code to improve the overall performance. This is my first C++ project on a system with more than 1MB of RAM, so any suggestions/pull requests are welcome.

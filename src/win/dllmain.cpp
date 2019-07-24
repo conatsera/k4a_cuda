@@ -34,9 +34,9 @@ extern "C" __declspec(dllexport) void get_skeletons()
 	area->GetSkeletons();
 }
 
-extern "C" __declspec(dllexport) k4abt_skeleton_t get_skeleton(int skel_id)
+extern "C" __declspec(dllexport) void set_skeleton_group(k4a_skeleton_group_t* skeleton_group)
 {
-	return area->GetSkeleton(skel_id);
+	area->SetSkeletonGroup(skeleton_group);
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule,

@@ -17,7 +17,7 @@ protected:
 		if (g_CPC == nullptr)
 			g_CPC = new K4A_CudaPointCloud();
 	}
-	
+
 	void TearDown() override
 	{
 
@@ -51,15 +51,16 @@ TEST_F(k4a_demo_ut, get_floats)
 
 TEST_F(k4a_demo_ut, get_skeletons)
 {
-	for (int i = 0; i < 1024; i++)
+	for (int i = 0; i < 256; i++)
 	{
 		g_CPC->GetCapture();
+		k4a_skeleton_group_t* skeleton_group = new k4a_skeleton_group_t();
+		g_CPC->SetSkeletonGroup(skeleton_group);
 		g_CPC->GetSkeletons();
 		int skel_count = g_CPC->GetSkeletonCount();
 		if (skel_count != 0) {
 			for (int skel_id = 0; skel_id < skel_count; skel_id++) {
-				k4abt_skeleton_t skeleton = g_CPC->GetSkeleton(skel_id);
-				printf("%f\n", skeleton.joints[K4ABT_JOINT_WRIST_RIGHT].position.xyz.x);
+				printf("%f\n", skeleton_group->skeletons[skel_id].joints[K4ABT_JOINT_WRIST_RIGHT].position.xyz.x);
 			}
 		}
 	}

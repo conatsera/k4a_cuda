@@ -7,7 +7,7 @@ target_link_libraries(k4a_cuda_ut PRIVATE
 	gtest::gtest
     gtest::gmock)
 
-target_include_directories(k4a_cuda_ut PRIVATE "${PROJECT_INCLUDE_DIR};${gtest_SOURCE_DIR}/include;${gmock_SOURCE_DIR}/include;${K4A_SDK_INCLUDE};${K4ABT_SDK_INCLUDE};${CUDA_INCLUDE}")
+target_include_directories(k4a_cuda_ut PRIVATE "${gtest_SOURCE_DIR}/include;${gmock_SOURCE_DIR}/include;${K4A_SDK_INCLUDE};${K4ABT_SDK_INCLUDE};${CUDA_INCLUDE}")
 
 
 gtest_discover_tests(k4a_cuda_ut)

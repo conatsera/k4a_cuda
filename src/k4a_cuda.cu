@@ -15,6 +15,26 @@ __global__ void k4a_point_cloud_adjust(uint16_t* depth_data, float2* xy_table, f
 
 }
 
+__global__ void k4a_skeleton_adjust(int skeleton_count, k4a_skeleton_group_t* skeletons, k4a_skeleton_group_t* skeletons_adjusted)
+{
+	for (int skel_id = 0; skel_id < skeleton_count; skel_id++)
+	{
+		int i = (blockIdx.x * 7) + (threadIdx.x);
+
+		if (i < 27)
+		{
+			skeletons_adjusted->skeletons[skel_id].joints[i].orientation.wxyz.w = skeletons->skeletons[skel_id].joints[i].orientation.wxyz.w;
+			skeletons_adjusted->skeletons[skel_id].joints[i].orientation.wxyz.x = skeletons->skeletons[skel_id].joints[i].orientation.wxyz.x;
+			skeletons_adjusted->skeletons[skel_id].joints[i].orientation.wxyz.x = skeletons->skeletons[skel_id].joints[i].orientation.wxyz.y;
+			skeletons_adjusted->skeletons[skel_id].joints[i].orientation.wxyz.z = skeletons->skeletons[skel_id].joints[i].orientation.wxyz.z;
+
+			skeletons_adjusted->skeletons[skel_id].joints[i].position.xyz.x = __fdividef(skeletons->skeletons[skel_id].joints[i].position.xyz.x, -1000.0F);
+			skeletons_adjusted->skeletons[skel_id].joints[i].position.xyz.y = __fdividef(skeletons->skeletons[skel_id].joints[i].position.xyz.y, -1000.0F);
+			skeletons_adjusted->skeletons[skel_id].joints[i].position.xyz.z = __fdividef(skeletons->skeletons[skel_id].joints[i].position.xyz.z, 1000.0F);
+		}
+	}
+}
+
 void K4ALogger(void* ctx, k4a_log_level_t logLevel, const char* file, const int line, const char* message)
 {
 	printf("%d %s:%d %s", logLevel, file, line, message);
@@ -159,7 +179,7 @@ float4* K4A_CudaPointCloud::GeneratePointCloud()
 	cudaMemcpy(d_depth_data, depth_data, kSize * sizeof(uint16_t), cudaMemcpyHostToDevice);
 	cudaMemcpy(d_xy_table, h_xy_table, kSize * sizeof(float2), cudaMemcpyHostToDevice);
 
-	k4a_point_cloud_adjust << <512, 512 >> > (d_depth_data, d_xy_table, d_point_cloud);
+	k4a_point_cloud_adjust<<<512, 512>>>(d_depth_data, d_xy_table, d_point_cloud);
 	cudaDeviceSynchronize();
 
 	cudaMemcpy(h_point_cloud, d_point_cloud, kSize * sizeof(float4), cudaMemcpyDeviceToHost);
@@ -176,6 +196,18 @@ float4* K4A_CudaPointCloud::GeneratePointCloud()
 int K4A_CudaPointCloud::GetSkeletonCount()
 {
 	return skeleton_count;
+}
+
+
+void K4A_CudaPointCloud::SetSkeletonGroup(k4a_skeleton_group_t* group_ref)
+{
+	h_skeleton_group = group_ref;
+
+	cudaHostRegister(h_skeleton_group, sizeof(k4a_skeleton_group_t), cudaHostRegisterMapped);
+	cudaHostAlloc<k4a_skeleton_group_t>(&h_skeleton_group_unadjusted, sizeof(k4a_skeleton_group_t), cudaHostAllocWriteCombined);
+
+	cudaHostGetDevicePointer<k4a_skeleton_group_t>(&d_skeleton_group, h_skeleton_group, 0);
+	cudaHostGetDevicePointer<k4a_skeleton_group_t>(&d_skeleton_group_unadjusted, h_skeleton_group_unadjusted, 0);
 }
 
 void K4A_CudaPointCloud::GetSkeletons()
@@ -198,11 +230,11 @@ void K4A_CudaPointCloud::GetSkeletons()
 	if (pop_frame_result == K4A_WAIT_RESULT_SUCCEEDED)
 	{
 		size_t num_bodies = k4abt_frame_get_num_bodies(body_frame);
-		printf("%zu bodies are detected!\n", num_bodies);
+		//printf("%zu bodies are detected!\n", num_bodies);
 
 		for (int i = 0; i < num_bodies && i < MAX_TRACKED_SKELETONS; i++)
 		{
-			k4a_result_t get_body_result = k4abt_frame_get_body_skeleton(body_frame, i, &skeleton_group.skeletons[skeleton_count]);
+			k4a_result_t get_body_result = k4abt_frame_get_body_skeleton(body_frame, i, &h_skeleton_group_unadjusted->skeletons[skeleton_count]);
 			if (get_body_result == K4A_RESULT_SUCCEEDED)
 			{
 				skeleton_count++;
@@ -210,8 +242,11 @@ void K4A_CudaPointCloud::GetSkeletons()
 		}
 
 		for (int skel_id = skeleton_count; skel_id < MAX_TRACKED_SKELETONS; skel_id++) {
-			skeleton_group.skeletons[skel_id] = k4abt_skeleton_t();
+			h_skeleton_group_unadjusted->skeletons[skel_id] = k4abt_skeleton_t();
 		}
+
+		k4a_skeleton_adjust<<<4, 7>>>(skeleton_count, d_skeleton_group_unadjusted, d_skeleton_group);
+		cudaDeviceSynchronize();
 
 		k4abt_frame_release(body_frame);
 	}
@@ -224,9 +259,4 @@ void K4A_CudaPointCloud::GetSkeletons()
 	{
 		printf("Pop body frame result failed!\n");
 	}
-}
-
-k4abt_skeleton_t K4A_CudaPointCloud::GetSkeleton(int skel_id)
-{
-	return skeleton_group.skeletons[skel_id];
 }

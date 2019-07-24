@@ -10,15 +10,30 @@ struct float4 {
 	float w;
 };
 
+#define MAX_TRACKED_SKELETONS 4
+
+typedef struct _k4a_skeleton_group_t
+{
+	k4abt_skeleton_t skeletons[MAX_TRACKED_SKELETONS];
+} k4a_skeleton_group_t;
+
 extern "C" __declspec(dllimport) void init_cpc();
+
+extern "C" __declspec(dllimport) void get_capture();
 
 extern "C" __declspec(dllimport) float4* get_point_cloud();
 
-extern "C" __declspec(dllimport) k4abt_skeleton_t get_skeleton();
+extern "C" __declspec(dllimport) int get_skeleton_count();
+
+extern "C" __declspec(dllimport) void get_skeletons();
+
+extern "C" __declspec(dllimport) void set_skeleton_group(k4a_skeleton_group_t* skeleton_group);
 
 TEST(k4a_demo_win_ut, get_floats)
 {
 	init_cpc();
+
+	get_capture();
 
 	float4* floats = get_point_cloud();
 

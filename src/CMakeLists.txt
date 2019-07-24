@@ -6,7 +6,7 @@ cmake_minimum_required (VERSION 3.14.0)
 # Add source to this project's executable.
 add_library (k4a_cuda STATIC "k4a_cuda.cu" "k4a_cuda.cuh")
 
-target_include_directories(k4a_cuda PRIVATE "${PROJECT_INCLUDE_DIR};${K4A_SDK_INCLUDE};${K4ABT_SDK_INCLUDE};${CUDA_INCLUDE}")
+target_include_directories(k4a_cuda PRIVATE "${K4A_SDK_INCLUDE};${K4ABT_SDK_INCLUDE};${CUDA_INCLUDE}")
 
 target_link_libraries(k4a_cuda ${K4A_SDK} ${K4ABT_SDK})
 
@@ -17,5 +17,8 @@ elseif (${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
 else()
     message(FATAL_ERROR "Unknown system: ${CMAKE_SYSTEM_NAME}")
 endif()
+
+file(COPY ${K4ABT_DNN}
+	DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
 # TODO: Add tests and install targets if needed.

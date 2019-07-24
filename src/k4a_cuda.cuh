@@ -23,6 +23,9 @@ constexpr int kSize = kThreadXSize * kThreadYSize;
 
 #define MAX_TRACKED_SKELETONS 4
 
+#define MEMORY_ALIGNMENT  4096
+#define ALIGN_UP(x,size) ( ((size_t)x+(size-1))&(~(size-1)) )
+
 typedef struct _k4a_skeleton_group_t
 {
 	k4abt_skeleton_t skeletons[MAX_TRACKED_SKELETONS];
@@ -36,9 +39,10 @@ public:
 	void GetCapture();
 
 	float4* GeneratePointCloud();
+
+	void SetSkeletonGroup(k4a_skeleton_group_t* group_ref);
 	int GetSkeletonCount();
 	void GetSkeletons();
-	k4abt_skeleton_t GetSkeleton(int skel_id);
 private:
 	k4a_device_t device = NULL;
 
@@ -53,7 +57,11 @@ private:
 
 	k4abt_frame_t body_frame = NULL;
 	int skeleton_count;
-	k4a_skeleton_group_t skeleton_group;
+
+	k4a_skeleton_group_t* h_skeleton_group;
+	k4a_skeleton_group_t* h_skeleton_group_unadjusted;
+	k4a_skeleton_group_t* d_skeleton_group;
+	k4a_skeleton_group_t* d_skeleton_group_unadjusted;
 
 	void CreateXYTable();
 };
