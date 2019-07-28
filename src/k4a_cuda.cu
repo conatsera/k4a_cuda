@@ -3,16 +3,133 @@
 
 #include "k4a_cuda.cuh"
 
-__global__ void k4a_point_cloud_adjust(uint16_t* depth_data, float2* xy_table, float4* point_cloud)
+__constant__ float calibration_3d_to_3c[12];
+__constant__ float calibration_3c_to_2c[15];
+
+__forceinline__ __device__ void compute_correspondence(float4* depth_point,
+									   uint32_t* color_data,
+									   float4* color_depth_point,
+									   uint32_t* color_pixel,
+									   int point)
 {
-	int i = (blockIdx.x * 512) + (threadIdx.x);
+	const float x = depth_point[point].x;
+	const float y = depth_point[point].y;
+	const float z = depth_point[point].z;
 
-	float this_depth_data = __uint2float_rn(depth_data[i]);
+	float4 color_point;
+	color_point.x = calibration_3d_to_3c[0] * x + calibration_3d_to_3c[1] * y + calibration_3d_to_3c[2] * z + calibration_3d_to_3c[9];
+	color_point.y = calibration_3d_to_3c[3] * x + calibration_3d_to_3c[4] * y + calibration_3d_to_3c[5] * z + calibration_3d_to_3c[10];
+	color_point.z = calibration_3d_to_3c[6] * x + calibration_3d_to_3c[7] * y + calibration_3d_to_3c[8] * z + calibration_3d_to_3c[11];
 
-	point_cloud[i].x = __fdividef((this_depth_data * xy_table[i].x), 1000.0f);
-	point_cloud[i].y = __fdividef((this_depth_data * xy_table[i].y), 1000.0f);
-	point_cloud[i].z = __fdividef(this_depth_data, 1000.0f);
+	color_point.w = calibration_3c_to_2c[14] * calibration_3c_to_2c[14];
 
+	color_depth_point[point].x = __fdividef(color_point.x, 1000.0f);
+	color_depth_point[point].y = __fdividef(color_point.y, -1000.0f);
+	color_depth_point[point].z = __fdividef(color_point.z, 1000.0f);
+
+	float xy[2];
+	xy[0] = color_point.x / color_point.z;
+	xy[1] = color_point.y / color_point.z;
+
+	float xp = xy[0] - calibration_3c_to_2c[10];
+	float yp = xy[1] - calibration_3c_to_2c[11];
+
+	float xp2 = xp * xp;
+	float yp2 = yp * yp;
+	float xyp = xp * yp;
+	float rs = xp2 + yp2;
+
+	if (!(rs > calibration_3c_to_2c[14] * calibration_3c_to_2c[14]))
+	{
+		float rss = rs * rs;
+		float rsc = rss * rs;
+		float a = 1.f + calibration_3c_to_2c[4] * rs + calibration_3c_to_2c[5] * rss + calibration_3c_to_2c[6] * rsc;
+		float b = 1.f + calibration_3c_to_2c[7] * rs + calibration_3c_to_2c[8] * rss + calibration_3c_to_2c[9] * rsc;
+		float bi;
+		if (b != 0.f)
+		{
+			bi = 1.f / b;
+		}
+		else
+		{
+			bi = 1.f;
+		}
+		float d = a * bi;
+
+		float xp_d = xp * d;
+		float yp_d = yp * d;
+
+		float rs_2xp2 = rs + 2.f * xp2;
+		float rs_2yp2 = rs + 2.f * yp2;
+
+		xp_d += rs_2xp2 * calibration_3c_to_2c[13] + 2.f * xyp * calibration_3c_to_2c[12];
+		yp_d += rs_2yp2 * calibration_3c_to_2c[12] + 2.f * xyp * calibration_3c_to_2c[13];
+
+		float xp_d_cx = xp_d + calibration_3c_to_2c[10];
+		float yp_d_cy = yp_d + calibration_3c_to_2c[11];
+
+		float2 color_pixel_xy;
+		color_pixel_xy.x = xp_d_cx * calibration_3c_to_2c[2] + calibration_3c_to_2c[0];
+		color_pixel_xy.y = yp_d_cy * calibration_3c_to_2c[3] + calibration_3c_to_2c[1];
+
+		int pixel = (__float2int_rz(color_pixel_xy.y) * 2048) + __float2int_rz(color_pixel_xy.x);
+
+		color_pixel[point] = color_data[pixel];
+		color_depth_point[point].w = 1.0f;
+	}
+}
+
+__global__ void transform_to_color_cloud(float4* point_cloud,
+									uint32_t* color_data,
+									float4* color_point_cloud,
+									uint32_t* point_colors,
+									int2* dimensions,
+									int2* corners)
+{
+	int pixel_ratio = dimensions->x / blockDim.x;
+	for (int j = 0; j < pixel_ratio; j++)
+	{
+		int pixel = (blockIdx.x * blockDim.x * j) + (threadIdx.x);
+		compute_correspondence(point_cloud, color_data, color_point_cloud, point_colors, pixel);
+		if ((corners[blockIdx.x].x == -1 || corners[blockIdx.x].x > pixel) && color_point_cloud[pixel].w == 1.0f)
+			corners[blockIdx.x].x = pixel;
+		if (corners[blockIdx.x].x != -1 && corners[blockIdx.x].y < (pixel) && color_point_cloud[pixel].w == 1.0f)
+			corners[blockIdx.x].y = pixel;
+	}
+}
+
+__global__ void k4a_point_cloud_adjust(uint16_t* depth_data, float2* xy_table, float4* point_cloud, int2* boundaries)
+{
+	int i = (blockIdx.x * blockDim.x) + (threadIdx.x);
+
+	float this_depth_data = __uint2float_rz(depth_data[i]);
+
+	if (this_depth_data != nanf("") && this_depth_data != 0.0f)
+	{
+		if (boundaries->x == 0)
+			boundaries->x = i;
+		boundaries->y = i;
+		point_cloud[i].x = __fdividef((this_depth_data * xy_table[i].x), 1000.0f);
+		point_cloud[i].y = __fdividef((this_depth_data * xy_table[i].y), -1000.0f);
+		point_cloud[i].z = __fdividef(this_depth_data, 1000.0f);
+	}
+}
+
+__global__ void k4a_color_point_cloud_adjust(uint16_t* depth_data, float2* xy_table, float4* point_cloud, int2* boundaries)
+{
+	int i = (blockIdx.x * blockDim.x) + (threadIdx.x);
+
+	float this_depth_data = __uint2float_rz(depth_data[i]);
+
+	if (this_depth_data != nanf("") && this_depth_data != 0.0f)
+	{
+		if (boundaries->x == 0)
+			boundaries->x = i;
+		boundaries->y = i;
+		point_cloud[i].x = (this_depth_data * xy_table[i].x);
+		point_cloud[i].y = (this_depth_data * xy_table[i].y);
+		point_cloud[i].z = this_depth_data;
+	}
 }
 
 __global__ void k4a_skeleton_adjust(int skeleton_count, k4a_skeleton_group_t* skeletons, k4a_skeleton_group_t* skeletons_adjusted)
@@ -64,12 +181,20 @@ void ConstantInitFloat4(float4* data, int size, float4 val)
 	}
 }
 
-K4A_CudaPointCloud::K4A_CudaPointCloud()
+K4A_CudaPointCloud::K4A_CudaPointCloud(bool color, bool body_tracking)
 {
 	bool success = true;
+	color_enabled = color;
 
 	k4a_device_configuration_t device_config = K4A_DEVICE_CONFIG_INIT_DISABLE_ALL;
 	device_config.depth_mode = K4A_DEPTH_MODE_WFOV_2X2BINNED;
+	if (color_enabled)
+	{
+		device_config.depth_mode = K4A_DEPTH_MODE_NFOV_UNBINNED;
+		device_config.color_format = K4A_IMAGE_FORMAT_COLOR_BGRA32;
+		device_config.color_resolution = K4A_COLOR_RESOLUTION_1536P;
+		device_config.synchronized_images_only = true;
+	}
 
 	if (k4a_device_open(K4A_DEVICE_DEFAULT, &device) != K4A_RESULT_SUCCEEDED)
 	{
@@ -84,8 +209,11 @@ K4A_CudaPointCloud::K4A_CudaPointCloud()
 	}
 	else
 	{
-		dots = sensor_calibration.depth_camera_calibration.resolution_height * sensor_calibration.depth_camera_calibration.resolution_width;
-		h_xy_table = new float2[dots];
+		if (color_enabled)
+			dots = sensor_calibration.color_camera_calibration.resolution_height* sensor_calibration.color_camera_calibration.resolution_width;
+		else
+			dots = sensor_calibration.depth_camera_calibration.resolution_height * sensor_calibration.depth_camera_calibration.resolution_width;
+		depth_points = sensor_calibration.depth_camera_calibration.resolution_height * sensor_calibration.depth_camera_calibration.resolution_width;
 	}
 
 	if (success)
@@ -97,9 +225,12 @@ K4A_CudaPointCloud::K4A_CudaPointCloud()
 			printf("Start K4A cameras failed!\n");
 		}
 
-		if (k4abt_tracker_create(&sensor_calibration, &tracker) != K4A_RESULT_SUCCEEDED)
+		if (body_tracking)
 		{
-			printf("Start tracker failed!\n");
+			if (k4abt_tracker_create(&sensor_calibration, &tracker) != K4A_RESULT_SUCCEEDED)
+			{
+				printf("Start tracker failed!\n");
+			}
 		}
 	}
 }
@@ -115,8 +246,8 @@ K4A_CudaPointCloud::~K4A_CudaPointCloud()
 
 void K4A_CudaPointCloud::CreateXYTable()
 {
-	h_xy_table = (float2*)malloc(kSize * sizeof(float2));
-	ConstantInitFloat2(h_xy_table, kSize, make_float2(nanf(""), nanf("")));
+	h_xy_table = (float2*)malloc(depth_points * sizeof(float2));
+	ConstantInitFloat2(h_xy_table, depth_points, make_float2(nanf(""), nanf("")));
 
 	int width = sensor_calibration.depth_camera_calibration.resolution_width;
 	int height = sensor_calibration.depth_camera_calibration.resolution_height;
@@ -133,7 +264,7 @@ void K4A_CudaPointCloud::CreateXYTable()
 			p.xy.x = (float)x;
 
 			k4a_calibration_2d_to_3d(
-				&sensor_calibration, &p, 1.f, K4A_CALIBRATION_TYPE_DEPTH, K4A_CALIBRATION_TYPE_DEPTH, &ray, &valid);
+					&sensor_calibration, &p, 1.f, K4A_CALIBRATION_TYPE_DEPTH, K4A_CALIBRATION_TYPE_DEPTH, &ray, &valid);
 
 			if (valid)
 			{
@@ -142,15 +273,78 @@ void K4A_CudaPointCloud::CreateXYTable()
 			}
 		}
 	}
+
+	if (color_enabled)
+	{
+		h_color_xy_table = (float2*)malloc(dots * sizeof(float2));
+		ConstantInitFloat2(h_color_xy_table, dots, make_float2(nanf(""), nanf("")));
+
+
+		width = sensor_calibration.color_camera_calibration.resolution_width;
+		height = sensor_calibration.color_camera_calibration.resolution_height;
+
+		k4a_float2_t p2;
+		k4a_float3_t ray2;
+		int valid2 = 0;
+
+		for (int y = 0, idx = 0; y < height; y++)
+		{
+			p2.xy.y = (float)y;
+			for (int x = 0; x < width; x++, idx++)
+			{
+				p2.xy.x = (float)x;
+
+				k4a_calibration_2d_to_3d(
+					&sensor_calibration, &p2, 1.f, K4A_CALIBRATION_TYPE_COLOR, K4A_CALIBRATION_TYPE_COLOR, &ray2, &valid2);
+
+				if (valid2)
+				{
+					h_color_xy_table[idx].x = ray2.xyz.x;
+					h_color_xy_table[idx].y = ray2.xyz.y;
+				}
+			}
+		}
+	}
 }
 
 void K4A_CudaPointCloud::GetCapture()
 {
+	k4a_capture_release(capture);
 	k4a_device_get_capture(device, &capture, K4A_WAIT_INFINITE);
+}
+
+float h_calibration_3d_to_3c[12];
+float h_calibration_3c_to_2c[15];
+
+void K4A_CudaPointCloud::SetupPointCloud()
+{
+	h_boundaries = (int2*)malloc(sizeof(int2));
+	if (color_enabled)
+	{
+		h_point_cloud = (float4*)malloc(dots * sizeof(float4));
+		h_color_points = (uint32_t*)malloc(dots * sizeof(uint32_t));
+
+		for (int i = 0; i < 9; i++)
+			h_calibration_3d_to_3c[i] = sensor_calibration.extrinsics[K4A_CALIBRATION_TYPE_DEPTH][K4A_CALIBRATION_TYPE_COLOR].rotation[i];
+		for (int i = 0; i < 3; i++)
+			h_calibration_3d_to_3c[i+9] = sensor_calibration.extrinsics[K4A_CALIBRATION_TYPE_DEPTH][K4A_CALIBRATION_TYPE_COLOR].translation[i];
+		
+		for (int i = 0; i < 14; i++)
+			h_calibration_3c_to_2c[i] = sensor_calibration.color_camera_calibration.intrinsics.parameters.v[i];
+		h_calibration_3c_to_2c[14] = sensor_calibration.color_camera_calibration.metric_radius;
+
+		cudaMemcpyToSymbol(calibration_3d_to_3c, &h_calibration_3d_to_3c, sizeof(float) * 12);
+		cudaMemcpyToSymbol(calibration_3c_to_2c, &h_calibration_3c_to_2c, sizeof(float) * 15);
+	}
+	else
+	{
+		h_point_cloud = (float4*)malloc(depth_points * sizeof(float4));
+	}
 }
 
 float4* K4A_CudaPointCloud::GeneratePointCloud()
 {
+	memset(h_point_cloud, '\0', dots * sizeof(float4));
 	// Probe for a depth16 image
 	k4a_image_t depth_image = k4a_capture_get_depth_image(capture);
 	if (depth_image == nullptr)
@@ -158,39 +352,129 @@ float4* K4A_CudaPointCloud::GeneratePointCloud()
 		printf("Failed to get depth image from capture\n");
 	}
 
-	int width = k4a_image_get_width_pixels(depth_image);
-	int height = k4a_image_get_height_pixels(depth_image);
+	k4a_image_t color_image;
+	if (color_enabled)
+	{
+		memset(h_color_points, '\0', dots * sizeof(uint32_t));
+		// Probe for a depth16 image
+		color_image = k4a_capture_get_color_image(capture);
+		if (color_image == nullptr)
+		{
+			printf("Failed to get color image from capture\n");
+		}
+	}
 
-	uint16_t* depth_data = (uint16_t*)(void*)k4a_image_get_buffer(depth_image);
+	uint16_t* depth_data;
 
-	float* h_depth_data = (float*)malloc(kSize * sizeof(float));
+	uint32_t* h_color_data;
+	uint32_t* d_color_data;
 
-	h_point_cloud = (float4*)malloc(kSize * sizeof(float4));
+	depth_data = (uint16_t*)(void*)k4a_image_get_buffer(depth_image);
 
-	ConstantInitFloat4(h_point_cloud, kSize, make_float4(nanf(""), nanf(""), nanf(""), nanf("")));
+	float* h_depth_data = (float*)malloc(depth_points * sizeof(float));
+
+	ConstantInitFloat4(h_point_cloud, dots, make_float4(nanf(""), nanf(""), nanf(""), nanf("")));
 
 	uint16_t* d_depth_data;
-	cudaMalloc(&d_depth_data, kSize * sizeof(uint16_t));
+	cudaMalloc(&d_depth_data, depth_points * sizeof(uint16_t));
+
 	float2* d_xy_table;
-	cudaMalloc(&d_xy_table, kSize * sizeof(float2));
+	cudaMalloc(&d_xy_table, depth_points * sizeof(float2));
+
 	float4* d_point_cloud;
-	cudaMalloc(&d_point_cloud, kSize * sizeof(float4));
+	cudaMalloc(&d_point_cloud, depth_points * sizeof(float4));
 
-	cudaMemcpy(d_depth_data, depth_data, kSize * sizeof(uint16_t), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_xy_table, h_xy_table, kSize * sizeof(float2), cudaMemcpyHostToDevice);
+	float4* d_color_point_cloud;
+	
+	int2* d_boundaries;
+	cudaMalloc(&d_boundaries, sizeof(int2));
+	
+	cudaMemcpy(d_depth_data, depth_data, depth_points * sizeof(uint16_t), cudaMemcpyHostToDevice);
 
-	k4a_point_cloud_adjust<<<512, 512>>>(d_depth_data, d_xy_table, d_point_cloud);
+	cudaMemcpy(d_xy_table, h_xy_table, depth_points * sizeof(float2), cudaMemcpyHostToDevice);
+
+	int blockSize = depth_points / 512;
+	if (color_enabled)
+		k4a_color_point_cloud_adjust<<<blockSize, 512>>>(d_depth_data, d_xy_table, d_point_cloud, d_boundaries);
+	else
+		k4a_point_cloud_adjust<<<blockSize, 512>>>(d_depth_data, d_xy_table, d_point_cloud, d_boundaries);
 	cudaDeviceSynchronize();
 
-	cudaMemcpy(h_point_cloud, d_point_cloud, kSize * sizeof(float4), cudaMemcpyDeviceToHost);
+	h_boundaries = new int2(make_int2(0, 0));
+
+	cudaMemcpy(h_boundaries, d_boundaries, sizeof(int2), cudaMemcpyDeviceToHost);
+
+	if (color_enabled)
+	{
+		h_color_data = (uint32_t*)(void*)k4a_image_get_buffer(color_image);
+		uint32_t* d_color_data;
+		cudaMalloc(&d_color_data, dots * sizeof(uint32_t));
+
+		uint32_t* d_color_points;
+		cudaMalloc(&d_color_points, dots * sizeof(uint32_t));
+
+		cudaMalloc(&d_color_point_cloud, dots * sizeof(float4));
+		
+		cudaMemcpy(d_color_data, h_color_data, dots * sizeof(uint32_t), cudaMemcpyHostToDevice);
+
+		int height = sensor_calibration.color_camera_calibration.resolution_height;
+		int width = sensor_calibration.color_camera_calibration.resolution_width;
+
+		int2* h_dimensions = new int2(make_int2(width, height));
+		int2* d_dimensions;
+		cudaMalloc(&d_dimensions, sizeof(int2));
+		cudaMemcpy(d_dimensions, h_dimensions, sizeof(int2), cudaMemcpyHostToDevice);
+
+		int2* d_corners;
+		cudaMalloc(&d_corners, height * sizeof(int2));
+
+		transform_to_color_cloud<<<height, 512>>>(d_point_cloud, d_color_data, d_color_point_cloud, d_color_points, d_dimensions, d_corners);
+		cudaDeviceSynchronize();
+
+		cudaMemcpy(h_point_cloud, d_color_point_cloud, dots * sizeof(float4), cudaMemcpyDeviceToHost);
+
+		memset(h_color_points, '\0', dots * sizeof(uint32_t));
+		cudaMemcpy(h_color_points, d_color_points, dots * sizeof(uint32_t), cudaMemcpyDeviceToHost);
+
+		int2* h_corners = (int2*)malloc(height * sizeof(int2));
+		cudaMemcpy(h_corners, d_corners, height * sizeof(int2), cudaMemcpyDeviceToHost);
+
+		int real_size = 0;
+		for (int i = 0; i < height; i++)
+		{
+			real_size += h_corners[i].y - h_corners[i].x;
+		}
+
+
+		cudaFree(d_color_data);
+		cudaFree(d_color_points);
+		cudaFree(d_color_point_cloud);
+		cudaFree(d_dimensions);
+		cudaFree(d_corners);
+		k4a_image_release(color_image);
+	}
+	else
+	{
+		cudaMemcpy(h_point_cloud, d_point_cloud, dots * sizeof(float4), cudaMemcpyDeviceToHost);
+	}
+
+	cudaDeviceSynchronize();
+
+	//uint32_t color = TestColorPoint(h_point_cloud[300000], h_color_data);
 
 	cudaFree(d_depth_data);
 	cudaFree(d_xy_table);
 	cudaFree(d_point_cloud);
+	cudaFree(d_boundaries);
 
 	k4a_image_release(depth_image);
-
+	
 	return h_point_cloud;
+}
+
+uint32_t* K4A_CudaPointCloud::GetPointColors()
+{
+	return h_color_points;
 }
 
 int K4A_CudaPointCloud::GetSkeletonCount()

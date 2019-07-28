@@ -15,7 +15,7 @@ protected:
 	void SetUp() override
 	{
 		if (g_CPC == nullptr)
-			g_CPC = new K4A_CudaPointCloud();
+			g_CPC = new K4A_CudaPointCloud(true, false);
 	}
 
 	void TearDown() override
@@ -24,45 +24,51 @@ protected:
 	}
 };
 
+TEST_F(k4a_demo_ut, get_skeletons)
+{
+	if (false)
+	{
+		for (int i = 0; i < 256; i++)
+		{
+			g_CPC->GetCapture();
+			k4a_skeleton_group_t* skeleton_group = new k4a_skeleton_group_t();
+			g_CPC->SetSkeletonGroup(skeleton_group);
+			g_CPC->GetSkeletons();
+			int skel_count = g_CPC->GetSkeletonCount();
+			if (skel_count != 0) {
+				for (int skel_id = 0; skel_id < skel_count; skel_id++) {
+					printf("%f\n", skeleton_group->skeletons[skel_id].joints[K4ABT_JOINT_WRIST_RIGHT].position.xyz.x);
+				}
+			}
+		}
+	}
+}
+
 
 TEST_F(k4a_demo_ut, get_floats)
 {
-	g_CPC->GetCapture();
-	floats = g_CPC->GeneratePointCloud();
-
-	int nonzerocount = 0;
-	int nancount = 0;
-
-	for (int i = 0; i < 262144; i++) {
-		if (!isnan<float>(floats[i].x) && floats[i].z != 0.0)
-		{
-			ASSERT_GT(floats[i].z, 0.0);
-			ASSERT_LT(floats[i].z, 15.0);
-			nonzerocount++;
-		}
-		else
-		{
-			nancount++;
-		}
-	}
-
-	printf("%d %d", nonzerocount, nancount);
-}
-
-TEST_F(k4a_demo_ut, get_skeletons)
-{
-	for (int i = 0; i < 256; i++)
+	g_CPC->SetupPointCloud();
+	for (int i = 0; i < 16; i++)
 	{
 		g_CPC->GetCapture();
-		k4a_skeleton_group_t* skeleton_group = new k4a_skeleton_group_t();
-		g_CPC->SetSkeletonGroup(skeleton_group);
-		g_CPC->GetSkeletons();
-		int skel_count = g_CPC->GetSkeletonCount();
-		if (skel_count != 0) {
-			for (int skel_id = 0; skel_id < skel_count; skel_id++) {
-				printf("%f\n", skeleton_group->skeletons[skel_id].joints[K4ABT_JOINT_WRIST_RIGHT].position.xyz.x);
+		floats = g_CPC->GeneratePointCloud();
+		uint32_t* colors = g_CPC->GetPointColors();
+
+		int nonzerocount = 0;
+		int nancount = 0;
+
+		for (int i = 0; i < 1536 * 2048; i++) {
+			if (!isnan<float>(floats[i].x) && floats[i].z != 0.0 && floats[i].w == 1.0f)
+			{
+				nonzerocount++;
+			}
+			else
+			{
+				nancount++;
 			}
 		}
+
+		printf("%d %d\n", nonzerocount, nancount);
 	}
 }
 

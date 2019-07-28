@@ -9,9 +9,9 @@
 
 K4A_CudaPointCloud* area;
 
-extern "C" __declspec(dllexport) void init_cpc()
+extern "C" __declspec(dllexport) void init_cpc(bool color, bool body_tracking)
 {
-	area = new K4A_CudaPointCloud();
+	area = new K4A_CudaPointCloud(color, body_tracking);
 }
 
 extern "C" __declspec(dllexport) void get_capture()
@@ -19,9 +19,19 @@ extern "C" __declspec(dllexport) void get_capture()
 	area->GetCapture();
 }
 
+extern "C" __declspec(dllexport) void setup_point_cloud()
+{
+	area->SetupPointCloud();
+}
+
 extern "C" __declspec(dllexport) float4* get_point_cloud()
 {
 	return area->GeneratePointCloud();
+}
+
+extern "C" __declspec(dllexport) uint32_t* get_point_colors()
+{
+	return area->GetPointColors();
 }
 
 extern "C" __declspec(dllexport) int get_skeleton_count()

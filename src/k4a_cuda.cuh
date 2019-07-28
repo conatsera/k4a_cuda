@@ -14,12 +14,14 @@
 #include <device_launch_parameters.h>
 #include <vector_types.h>
 
+// For cuda intellisense
+//#ifndef __CUDACC__
+//#define __CUDACC__
+//#include <device_functions.h>
+//#include <crt/math_functions.h>
+//#endif
+
 #include <cstdio>
-
-constexpr int kThreadXSize = 512;
-constexpr int kThreadYSize = 512;
-
-constexpr int kSize = kThreadXSize * kThreadYSize;
 
 #define MAX_TRACKED_SKELETONS 4
 
@@ -33,27 +35,40 @@ typedef struct _k4a_skeleton_group_t
 
 class K4A_CudaPointCloud {
 public:
-	K4A_CudaPointCloud();
+	K4A_CudaPointCloud(bool color, bool body_tracking);
 	~K4A_CudaPointCloud();
 
 	void GetCapture();
 
+	void SetupPointCloud();
 	float4* GeneratePointCloud();
+	uint32_t* GetPointColors();
 
 	void SetSkeletonGroup(k4a_skeleton_group_t* group_ref);
 	int GetSkeletonCount();
 	void GetSkeletons();
+
+#ifdef IS_TEST
+	float4* GetSDKPointCloud();
+	uint32_t* GetSDKPointColors();
+#endif
 private:
 	k4a_device_t device = NULL;
 
 	k4a_calibration_t sensor_calibration;
 	int dots;
+	int depth_points;
+	bool color_enabled = false;
 
 	k4a_capture_t capture = NULL;
 	k4abt_tracker_t tracker = NULL;
 
 	float2* h_xy_table;
+	float2* h_color_xy_table;
+
 	float4* h_point_cloud;
+	int2* h_boundaries;
+	uint32_t* h_color_points;
 
 	k4abt_frame_t body_frame = NULL;
 	int skeleton_count;
