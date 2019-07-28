@@ -4,41 +4,73 @@ This library performs the point cloud calculation in CUDA as described in the SD
 
 # Script example
 ```c#
+    using System;
+using System.Runtime.InteropServices;
+using UnityEngine;
+
+unsafe public class GenerateCloud : MonoBehaviour
+{
+    ParticleSystem ps;
+
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct float4
+    {
+        public float x;
+        public float y;
+        public float z;
+        public float w;
+    }
+
     [DllImport("k4a_cuda_win.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    static extern void init_cpc();
+    static extern void init_cpc(bool color, bool body_tracking);
 
     [DllImport("k4a_cuda_win.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern void get_capture();
 
     [DllImport("k4a_cuda_win.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern void setup_point_cloud();
+
+    [DllImport("k4a_cuda_win.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern float4* get_point_cloud();
-    
+
+    [DllImport("k4a_cuda_win.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern uint* get_point_colors();
+
     void Start()
     {
-        init_cpc();
+        ps = GetComponent<ParticleSystem>();
+
+        // For color change to init_cpc(true, false) and uncomment color data lines below
+        init_cpc(false, false);
+
+        setup_point_cloud();
     }
-    
+
     void Update()
     {
-      get_capture();
-      float4* points = get_point_cloud();
-      
-      for (int i = 0; i < 262144; i++)
-      {
-        if (!float.IsNaN(points[i].x) && points[i].x != 0)
+        get_capture();
+        float4* points = get_point_cloud();
+        //uint* point_colors = get_point_colors();
+        // Note: A particle system may work in a pinch, but it is not designed to handle this amount of particles
+        // For a colored point cloud, you will have to cut 1/4 to 1/2 of the particles or Unity will not load
+        for (int i = 0; i < 262144; i++)
         {
-          ParticleSystem.EmitParams ep = new ParticleSystem.EmitParams
-          {
-            position = new Vector3(points[i].x, -points[i].y, points[i].z),
-            startSize = 0.01F,
-            startLifetime = 0.2F,
-            startColor = Color.green
-          };
+            if (!float.IsNaN(points[i].x) && points[i].x != 0)
+            {
+                //byte[] color_bits = BitConverter.GetBytes(point_colors[i]);
+                
+                ParticleSystem.EmitParams ep = new ParticleSystem.EmitParams
+                {
+                    position = new Vector3(points[i].x, points[i].y, points[i].z),
+                    //startColor = new Color32(color_bits[2], color_bits[1], color_bits[0], color_bits[3])
+                };
 
-          ps.Emit(ep, 1);
+                ps.Emit(ep, 1);
+            }
         }
-      }
     }
+}
 ```
 
 ## Notes
