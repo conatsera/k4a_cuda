@@ -48,7 +48,7 @@ TEST_F(k4a_demo_ut, get_skeletons)
 TEST_F(k4a_demo_ut, get_floats)
 {
 	g_CPC->SetupPointCloud();
-	for (int i = 0; i < 16; i++)
+	for (int i = 0; i < 128; i++)
 	{
 		g_CPC->GetCapture();
 		floats = g_CPC->GeneratePointCloud();

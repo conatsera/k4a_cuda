@@ -426,6 +426,7 @@ float4* K4A_CudaPointCloud::GeneratePointCloud()
 		memset(h_color_points, '\0', dots * sizeof(uint32_t));
 		cudaMemcpy(h_color_points, d_color_points, dots * sizeof(uint32_t), cudaMemcpyDeviceToHost);
 
+		delete h_dimensions;
 		cudaFree(d_color_data);
 		cudaFree(d_color_points);
 		cudaFree(d_color_point_cloud);
@@ -445,6 +446,8 @@ float4* K4A_CudaPointCloud::GeneratePointCloud()
 	cudaFree(d_xy_table);
 	cudaFree(d_point_cloud);
 	cudaFree(d_boundaries);
+
+	delete h_depth_data;
 
 	k4a_image_release(depth_image);
 	
