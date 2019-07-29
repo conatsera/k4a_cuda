@@ -6,7 +6,7 @@ cmake_minimum_required (VERSION 3.14.0)
 # Add source to this project's executable.
 add_library (k4a_cuda STATIC "k4a_cuda.cu" "k4a_cuda.cuh")
 
-target_include_directories(k4a_cuda PRIVATE "${K4A_SDK_INCLUDE};${K4ABT_SDK_INCLUDE};${CUDA_INCLUDE}")
+target_include_directories(k4a_cuda PRIVATE "${K4A_SDK_INCLUDE};${K4ABT_SDK_INCLUDE};${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}")
 
 target_link_libraries(k4a_cuda ${K4A_SDK} ${K4ABT_SDK})
 

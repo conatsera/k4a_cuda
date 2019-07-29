@@ -14,12 +14,10 @@
 #include <device_launch_parameters.h>
 #include <vector_types.h>
 
-// For cuda intellisense
-//#ifndef __CUDACC__
+// For cuda intellisense, recomment to build
 //#define __CUDACC__
 //#include <device_functions.h>
 //#include <crt/math_functions.h>
-//#endif
 
 #include <cstdio>
 

@@ -21,8 +21,6 @@ __forceinline__ __device__ void compute_correspondence(float4* depth_point,
 	color_point.y = calibration_3d_to_3c[3] * x + calibration_3d_to_3c[4] * y + calibration_3d_to_3c[5] * z + calibration_3d_to_3c[10];
 	color_point.z = calibration_3d_to_3c[6] * x + calibration_3d_to_3c[7] * y + calibration_3d_to_3c[8] * z + calibration_3d_to_3c[11];
 
-	color_point.w = calibration_3c_to_2c[14] * calibration_3c_to_2c[14];
-
 	color_depth_point[point].x = __fdividef(color_point.x, 1000.0f);
 	color_depth_point[point].y = __fdividef(color_point.y, -1000.0f);
 	color_depth_point[point].z = __fdividef(color_point.z, 1000.0f);
@@ -83,18 +81,13 @@ __global__ void transform_to_color_cloud(float4* point_cloud,
 									uint32_t* color_data,
 									float4* color_point_cloud,
 									uint32_t* point_colors,
-									int2* dimensions,
-									int2* corners)
+									int2* dimensions)
 {
 	int pixel_ratio = dimensions->x / blockDim.x;
 	for (int j = 0; j < pixel_ratio; j++)
 	{
 		int pixel = (blockIdx.x * blockDim.x * j) + (threadIdx.x);
 		compute_correspondence(point_cloud, color_data, color_point_cloud, point_colors, pixel);
-		if ((corners[blockIdx.x].x == -1 || corners[blockIdx.x].x > pixel) && color_point_cloud[pixel].w == 1.0f)
-			corners[blockIdx.x].x = pixel;
-		if (corners[blockIdx.x].x != -1 && corners[blockIdx.x].y < (pixel) && color_point_cloud[pixel].w == 1.0f)
-			corners[blockIdx.x].y = pixel;
 	}
 }
 
@@ -309,7 +302,8 @@ void K4A_CudaPointCloud::CreateXYTable()
 
 void K4A_CudaPointCloud::GetCapture()
 {
-	k4a_capture_release(capture);
+	if (capture != NULL)
+		k4a_capture_release(capture);
 	k4a_device_get_capture(device, &capture, K4A_WAIT_INFINITE);
 }
 
@@ -382,7 +376,7 @@ float4* K4A_CudaPointCloud::GeneratePointCloud()
 	cudaMalloc(&d_xy_table, depth_points * sizeof(float2));
 
 	float4* d_point_cloud;
-	cudaMalloc(&d_point_cloud, depth_points * sizeof(float4));
+	cudaMalloc(&d_point_cloud, dots * sizeof(float4));
 
 	float4* d_color_point_cloud;
 	
@@ -425,32 +419,17 @@ float4* K4A_CudaPointCloud::GeneratePointCloud()
 		cudaMalloc(&d_dimensions, sizeof(int2));
 		cudaMemcpy(d_dimensions, h_dimensions, sizeof(int2), cudaMemcpyHostToDevice);
 
-		int2* d_corners;
-		cudaMalloc(&d_corners, height * sizeof(int2));
-
-		transform_to_color_cloud<<<height, 512>>>(d_point_cloud, d_color_data, d_color_point_cloud, d_color_points, d_dimensions, d_corners);
-		cudaDeviceSynchronize();
+		transform_to_color_cloud<<<height, 512>>>(d_point_cloud, d_color_data, d_color_point_cloud, d_color_points, d_dimensions);
 
 		cudaMemcpy(h_point_cloud, d_color_point_cloud, dots * sizeof(float4), cudaMemcpyDeviceToHost);
 
 		memset(h_color_points, '\0', dots * sizeof(uint32_t));
 		cudaMemcpy(h_color_points, d_color_points, dots * sizeof(uint32_t), cudaMemcpyDeviceToHost);
 
-		int2* h_corners = (int2*)malloc(height * sizeof(int2));
-		cudaMemcpy(h_corners, d_corners, height * sizeof(int2), cudaMemcpyDeviceToHost);
-
-		int real_size = 0;
-		for (int i = 0; i < height; i++)
-		{
-			real_size += h_corners[i].y - h_corners[i].x;
-		}
-
-
 		cudaFree(d_color_data);
 		cudaFree(d_color_points);
 		cudaFree(d_color_point_cloud);
 		cudaFree(d_dimensions);
-		cudaFree(d_corners);
 		k4a_image_release(color_image);
 	}
 	else

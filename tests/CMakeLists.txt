@@ -10,7 +10,7 @@ target_link_libraries(k4a_cuda_ut PRIVATE
 	${K4A_SDK}
 	${K4ABT_SDK})
 
-target_include_directories(k4a_cuda_ut PRIVATE "${gtest_SOURCE_DIR}/include;${gmock_SOURCE_DIR}/include;${K4A_SDK_INCLUDE};${K4ABT_SDK_INCLUDE};${CUDA_INCLUDE}")
+target_include_directories(k4a_cuda_ut PRIVATE "${gtest_SOURCE_DIR}/include;${gmock_SOURCE_DIR}/include;${K4A_SDK_INCLUDE};${K4ABT_SDK_INCLUDE};${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}")
 
 
 gtest_discover_tests(k4a_cuda_ut)

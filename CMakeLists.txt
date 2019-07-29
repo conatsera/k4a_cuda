@@ -39,7 +39,6 @@ find_file(K4ABT_DNN "dnn_model.onnx" "C:/Program Files/Azure Kinect Body Trackin
 
 set(K4A_SDK_INCLUDE "C:/Program Files/Azure Kinect SDK v1.1.0/sdk/include")
 set(K4ABT_SDK_INCLUDE "C:/Program Files/Azure Kinect Body Tracking SDK/sdk/include")
-set(CUDA_INCLUDE "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/include")
 
 include_directories("src")
 
