@@ -34,6 +34,11 @@ extern "C" __declspec(dllexport) uint32_t* get_point_colors()
 	return area->GetPointColors();
 }
 
+extern "C" __declspec(dllexport) uint32_t get_point_count()
+{
+	return area->GetPointCount();
+}
+
 extern "C" __declspec(dllexport) int get_skeleton_count()
 {
 	return area->GetSkeletonCount();

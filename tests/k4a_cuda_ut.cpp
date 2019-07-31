@@ -48,16 +48,17 @@ TEST_F(k4a_demo_ut, get_skeletons)
 TEST_F(k4a_demo_ut, get_floats)
 {
 	g_CPC->SetupPointCloud();
-	for (int i = 0; i < 128; i++)
+	for (int i = 0; i < 1024; i++)
 	{
 		g_CPC->GetCapture();
 		floats = g_CPC->GeneratePointCloud();
 		uint32_t* colors = g_CPC->GetPointColors();
+		uint32_t count = g_CPC->GetPointCount();
 
 		int nonzerocount = 0;
 		int nancount = 0;
 
-		for (int i = 0; i < 1536 * 2048; i++) {
+		/*for (int i = 0; i < count; i++) {
 			if (!isnan<float>(floats[i].x) && floats[i].z != 0.0 && floats[i].w == 1.0f)
 			{
 				nonzerocount++;
@@ -66,9 +67,9 @@ TEST_F(k4a_demo_ut, get_floats)
 			{
 				nancount++;
 			}
-		}
+		}*/
 
-		printf("%d %d\n", nonzerocount, nancount);
+		//printf("%d %d\n", nonzerocount, nancount);
 	}
 }
 

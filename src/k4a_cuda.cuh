@@ -41,6 +41,8 @@ public:
 	void SetupPointCloud();
 	float4* GeneratePointCloud();
 	uint32_t* GetPointColors();
+	uint32_t GetPointCount();
+	void ResetPointCloud();
 
 	void SetSkeletonGroup(k4a_skeleton_group_t* group_ref);
 	int GetSkeletonCount();
@@ -61,12 +63,32 @@ private:
 	k4a_capture_t capture = NULL;
 	k4abt_tracker_t tracker = NULL;
 
+	k4a_image_t depth_image;
+	k4a_image_t color_image;
+
 	float2* h_xy_table;
-	float2* h_color_xy_table;
+	float2* d_xy_table;
 
 	float4* h_point_cloud;
-	int2* h_boundaries;
+	float4* d_point_cloud;
+	float4* d_color_point_cloud;
+	float4* d_trimmed_point_cloud;
+
 	uint32_t* h_color_points;
+	uint32_t* d_color_points;
+	uint32_t* d_trimmed_color_points;
+
+	unsigned int* d_point_count;
+	unsigned int* h_point_count;
+
+	uint16_t* h_depth_data;
+	uint16_t* d_depth_data;
+
+	uint32_t* h_color_data;
+	uint32_t* d_color_data;
+
+	int2* h_dimensions;
+	int2* d_dimensions;
 
 	k4abt_frame_t body_frame = NULL;
 	int skeleton_count;

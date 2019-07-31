@@ -91,7 +91,7 @@ __global__ void transform_to_color_cloud(float4* point_cloud,
 	}
 }
 
-__global__ void k4a_point_cloud_adjust(uint16_t* depth_data, float2* xy_table, float4* point_cloud, int2* boundaries)
+__global__ void k4a_point_cloud_adjust(uint16_t* depth_data, float2* xy_table, float4* point_cloud)
 {
 	int i = (blockIdx.x * blockDim.x) + (threadIdx.x);
 
@@ -99,16 +99,13 @@ __global__ void k4a_point_cloud_adjust(uint16_t* depth_data, float2* xy_table, f
 
 	if (this_depth_data != nanf("") && this_depth_data != 0.0f)
 	{
-		if (boundaries->x == 0)
-			boundaries->x = i;
-		boundaries->y = i;
 		point_cloud[i].x = __fdividef((this_depth_data * xy_table[i].x), 1000.0f);
 		point_cloud[i].y = __fdividef((this_depth_data * xy_table[i].y), -1000.0f);
 		point_cloud[i].z = __fdividef(this_depth_data, 1000.0f);
 	}
 }
 
-__global__ void k4a_color_point_cloud_adjust(uint16_t* depth_data, float2* xy_table, float4* point_cloud, int2* boundaries)
+__global__ void k4a_color_point_cloud_adjust(uint16_t* depth_data, float2* xy_table, float4* point_cloud)
 {
 	int i = (blockIdx.x * blockDim.x) + (threadIdx.x);
 
@@ -116,13 +113,25 @@ __global__ void k4a_color_point_cloud_adjust(uint16_t* depth_data, float2* xy_ta
 
 	if (this_depth_data != nanf("") && this_depth_data != 0.0f)
 	{
-		if (boundaries->x == 0)
-			boundaries->x = i;
-		boundaries->y = i;
 		point_cloud[i].x = (this_depth_data * xy_table[i].x);
 		point_cloud[i].y = (this_depth_data * xy_table[i].y);
 		point_cloud[i].z = this_depth_data;
 	}
+}
+
+//__device__ uint32_t count = 0;
+//__device__ bool is_last_thread_done;
+
+__global__ void trim_and_conform(float4* color_point_cloud, float4* trimmed_cloud, uint32_t* color_points, uint32_t* trimmed_color_points, unsigned int* point_count)
+{
+		int pixel = (blockIdx.x * blockDim.x) + (threadIdx.x);
+		if (color_point_cloud[pixel].w == 1.0f && color_point_cloud[pixel].z != 0.0f && color_point_cloud[pixel].x != nanf(""))
+		{
+			unsigned int point = atomicAdd(point_count, 1);
+
+			trimmed_cloud[point] = color_point_cloud[pixel];
+			trimmed_color_points[point] = color_points[pixel];
+		}
 }
 
 __global__ void k4a_skeleton_adjust(int skeleton_count, k4a_skeleton_group_t* skeletons, k4a_skeleton_group_t* skeletons_adjusted)
@@ -266,38 +275,6 @@ void K4A_CudaPointCloud::CreateXYTable()
 			}
 		}
 	}
-
-	if (color_enabled)
-	{
-		h_color_xy_table = (float2*)malloc(dots * sizeof(float2));
-		ConstantInitFloat2(h_color_xy_table, dots, make_float2(nanf(""), nanf("")));
-
-
-		width = sensor_calibration.color_camera_calibration.resolution_width;
-		height = sensor_calibration.color_camera_calibration.resolution_height;
-
-		k4a_float2_t p2;
-		k4a_float3_t ray2;
-		int valid2 = 0;
-
-		for (int y = 0, idx = 0; y < height; y++)
-		{
-			p2.xy.y = (float)y;
-			for (int x = 0; x < width; x++, idx++)
-			{
-				p2.xy.x = (float)x;
-
-				k4a_calibration_2d_to_3d(
-					&sensor_calibration, &p2, 1.f, K4A_CALIBRATION_TYPE_COLOR, K4A_CALIBRATION_TYPE_COLOR, &ray2, &valid2);
-
-				if (valid2)
-				{
-					h_color_xy_table[idx].x = ray2.xyz.x;
-					h_color_xy_table[idx].y = ray2.xyz.y;
-				}
-			}
-		}
-	}
 }
 
 void K4A_CudaPointCloud::GetCapture()
@@ -312,11 +289,30 @@ float h_calibration_3c_to_2c[15];
 
 void K4A_CudaPointCloud::SetupPointCloud()
 {
-	h_boundaries = (int2*)malloc(sizeof(int2));
+	cudaMalloc(&d_depth_data, depth_points * sizeof(uint16_t));
+	cudaMalloc(&d_xy_table, depth_points * sizeof(float2));
+	cudaMalloc(&d_point_cloud, dots * sizeof(float4));
+
 	if (color_enabled)
 	{
+		int width = sensor_calibration.color_camera_calibration.resolution_width;
+		int height = sensor_calibration.color_camera_calibration.resolution_height;
+
 		h_point_cloud = (float4*)malloc(dots * sizeof(float4));
 		h_color_points = (uint32_t*)malloc(dots * sizeof(uint32_t));
+		h_point_count = (unsigned int*)malloc(sizeof(unsigned int));
+		h_dimensions = new int2(make_int2(width, height));
+
+		cudaMalloc(&d_color_data, dots * sizeof(uint32_t));
+		cudaMalloc(&d_color_points, dots * sizeof(uint32_t));
+		cudaMalloc(&d_color_point_cloud, dots * sizeof(float4));
+		cudaMalloc(&d_dimensions, sizeof(int2));
+
+		cudaMemcpy(d_dimensions, h_dimensions, sizeof(int2), cudaMemcpyHostToDevice);
+
+		cudaMalloc(&d_trimmed_color_points, dots * sizeof(uint32_t));
+		cudaMalloc(&d_trimmed_point_cloud, dots * sizeof(float4));
+		cudaMalloc(&d_point_count, sizeof(unsigned int));
 
 		for (int i = 0; i < 9; i++)
 			h_calibration_3d_to_3c[i] = sensor_calibration.extrinsics[K4A_CALIBRATION_TYPE_DEPTH][K4A_CALIBRATION_TYPE_COLOR].rotation[i];
@@ -338,18 +334,17 @@ void K4A_CudaPointCloud::SetupPointCloud()
 
 float4* K4A_CudaPointCloud::GeneratePointCloud()
 {
-	memset(h_point_cloud, '\0', dots * sizeof(float4));
 	// Probe for a depth16 image
-	k4a_image_t depth_image = k4a_capture_get_depth_image(capture);
+	depth_image = k4a_capture_get_depth_image(capture);
 	if (depth_image == nullptr)
 	{
 		printf("Failed to get depth image from capture\n");
 	}
-
-	k4a_image_t color_image;
+	
 	if (color_enabled)
 	{
 		memset(h_color_points, '\0', dots * sizeof(uint32_t));
+
 		// Probe for a depth16 image
 		color_image = k4a_capture_get_color_image(capture);
 		if (color_image == nullptr)
@@ -358,79 +353,58 @@ float4* K4A_CudaPointCloud::GeneratePointCloud()
 		}
 	}
 
-	uint16_t* depth_data;
-
-	uint32_t* h_color_data;
-	uint32_t* d_color_data;
-
-	depth_data = (uint16_t*)(void*)k4a_image_get_buffer(depth_image);
-
-	float* h_depth_data = (float*)malloc(depth_points * sizeof(float));
+	h_depth_data = (uint16_t*)(void*)k4a_image_get_buffer(depth_image);
 
 	ConstantInitFloat4(h_point_cloud, dots, make_float4(nanf(""), nanf(""), nanf(""), nanf("")));
 
-	uint16_t* d_depth_data;
-	cudaMalloc(&d_depth_data, depth_points * sizeof(uint16_t));
+	(*h_point_count) = 0;
 
-	float2* d_xy_table;
-	cudaMalloc(&d_xy_table, depth_points * sizeof(float2));
+	cudaMemset(d_depth_data, 0, depth_points * sizeof(uint16_t));
 
-	float4* d_point_cloud;
-	cudaMalloc(&d_point_cloud, dots * sizeof(float4));
+	cudaMemset(d_xy_table, 0, depth_points * sizeof(float2));
 
-	float4* d_color_point_cloud;
+	cudaMemset(d_point_cloud, 0, dots * sizeof(float4));
 	
-	int2* d_boundaries;
-	cudaMalloc(&d_boundaries, sizeof(int2));
-	
-	cudaMemcpy(d_depth_data, depth_data, depth_points * sizeof(uint16_t), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_depth_data, h_depth_data, depth_points * sizeof(uint16_t), cudaMemcpyHostToDevice);
 
 	cudaMemcpy(d_xy_table, h_xy_table, depth_points * sizeof(float2), cudaMemcpyHostToDevice);
 
 	int blockSize = depth_points / 512;
 	if (color_enabled)
-		k4a_color_point_cloud_adjust<<<blockSize, 512>>>(d_depth_data, d_xy_table, d_point_cloud, d_boundaries);
+		k4a_color_point_cloud_adjust<<<blockSize, 512>>>(d_depth_data, d_xy_table, d_point_cloud);
 	else
-		k4a_point_cloud_adjust<<<blockSize, 512>>>(d_depth_data, d_xy_table, d_point_cloud, d_boundaries);
-	cudaDeviceSynchronize();
-
-	h_boundaries = new int2(make_int2(0, 0));
-
-	cudaMemcpy(h_boundaries, d_boundaries, sizeof(int2), cudaMemcpyDeviceToHost);
+		k4a_point_cloud_adjust<<<blockSize, 512>>>(d_depth_data, d_xy_table, d_point_cloud);
 
 	if (color_enabled)
 	{
 		h_color_data = (uint32_t*)(void*)k4a_image_get_buffer(color_image);
-		uint32_t* d_color_data;
-		cudaMalloc(&d_color_data, dots * sizeof(uint32_t));
 
-		uint32_t* d_color_points;
-		cudaMalloc(&d_color_points, dots * sizeof(uint32_t));
+		cudaMemset(d_color_data, 0, dots * sizeof(uint32_t));
 
-		cudaMalloc(&d_color_point_cloud, dots * sizeof(float4));
+		cudaMemset(d_color_points, 0, dots * sizeof(uint32_t));
+
+		cudaMemset(d_color_point_cloud, 0, dots * sizeof(float4));
 		
 		cudaMemcpy(d_color_data, h_color_data, dots * sizeof(uint32_t), cudaMemcpyHostToDevice);
 
 		int height = sensor_calibration.color_camera_calibration.resolution_height;
-		int width = sensor_calibration.color_camera_calibration.resolution_width;
 
-		int2* h_dimensions = new int2(make_int2(width, height));
-		int2* d_dimensions;
-		cudaMalloc(&d_dimensions, sizeof(int2));
-		cudaMemcpy(d_dimensions, h_dimensions, sizeof(int2), cudaMemcpyHostToDevice);
+		transform_to_color_cloud<<<height, 768>>>(d_point_cloud, d_color_data, d_color_point_cloud, d_color_points, d_dimensions);
 
-		transform_to_color_cloud<<<height, 512>>>(d_point_cloud, d_color_data, d_color_point_cloud, d_color_points, d_dimensions);
+		cudaMemset(d_trimmed_color_points, 0, dots * sizeof(uint32_t));
 
-		cudaMemcpy(h_point_cloud, d_color_point_cloud, dots * sizeof(float4), cudaMemcpyDeviceToHost);
+		cudaMemset(d_trimmed_point_cloud, 0, dots * sizeof(float4));
 
-		memset(h_color_points, '\0', dots * sizeof(uint32_t));
-		cudaMemcpy(h_color_points, d_color_points, dots * sizeof(uint32_t), cudaMemcpyDeviceToHost);
+		cudaMemset(d_point_count, 0, sizeof(unsigned int));
 
-		delete h_dimensions;
-		cudaFree(d_color_data);
-		cudaFree(d_color_points);
-		cudaFree(d_color_point_cloud);
-		cudaFree(d_dimensions);
+		trim_and_conform<<<dots/1024, 1024>>>(d_color_point_cloud, d_trimmed_point_cloud, d_color_points, d_trimmed_color_points, d_point_count);
+
+		cudaMemcpy(h_point_cloud, d_trimmed_point_cloud, dots * sizeof(float4), cudaMemcpyDeviceToHost);
+
+		cudaMemcpy(h_color_points, d_trimmed_color_points, dots * sizeof(uint32_t), cudaMemcpyDeviceToHost);
+
+		cudaMemcpy(h_point_count, d_point_count, sizeof(unsigned int), cudaMemcpyDeviceToHost);
+
 		k4a_image_release(color_image);
 	}
 	else
@@ -440,15 +414,6 @@ float4* K4A_CudaPointCloud::GeneratePointCloud()
 
 	cudaDeviceSynchronize();
 
-	//uint32_t color = TestColorPoint(h_point_cloud[300000], h_color_data);
-
-	cudaFree(d_depth_data);
-	cudaFree(d_xy_table);
-	cudaFree(d_point_cloud);
-	cudaFree(d_boundaries);
-
-	delete h_depth_data;
-
 	k4a_image_release(depth_image);
 	
 	return h_point_cloud;
@@ -457,6 +422,29 @@ float4* K4A_CudaPointCloud::GeneratePointCloud()
 uint32_t* K4A_CudaPointCloud::GetPointColors()
 {
 	return h_color_points;
+}
+
+uint32_t K4A_CudaPointCloud::GetPointCount()
+{
+	return (*h_point_count);
+}
+
+void K4A_CudaPointCloud::ResetPointCloud()
+{
+	if (color_enabled)
+	{
+		delete h_dimensions;
+		cudaFree(d_color_data);
+		cudaFree(d_color_points);
+		cudaFree(d_color_point_cloud);
+		cudaFree(d_trimmed_color_points);
+		cudaFree(d_trimmed_point_cloud);
+		cudaFree(d_point_count);
+		cudaFree(d_dimensions);
+	}
+	cudaFree(d_depth_data);
+	cudaFree(d_xy_table);
+	cudaFree(d_point_cloud);
 }
 
 int K4A_CudaPointCloud::GetSkeletonCount()
