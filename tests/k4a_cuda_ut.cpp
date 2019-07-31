@@ -55,21 +55,7 @@ TEST_F(k4a_demo_ut, get_floats)
 		uint32_t* colors = g_CPC->GetPointColors();
 		uint32_t count = g_CPC->GetPointCount();
 
-		int nonzerocount = 0;
-		int nancount = 0;
-
-		/*for (int i = 0; i < count; i++) {
-			if (!isnan<float>(floats[i].x) && floats[i].z != 0.0 && floats[i].w == 1.0f)
-			{
-				nonzerocount++;
-			}
-			else
-			{
-				nancount++;
-			}
-		}*/
-
-		//printf("%d %d\n", nonzerocount, nancount);
+		//printf("%d\n", count);
 	}
 }
 

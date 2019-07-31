@@ -69,6 +69,7 @@ private:
 	float2* h_xy_table;
 	float2* d_xy_table;
 
+	float4* empty_cloud;
 	float4* h_point_cloud;
 	float4* d_point_cloud;
 	float4* d_color_point_cloud;
