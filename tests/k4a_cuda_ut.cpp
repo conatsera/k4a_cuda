@@ -3,6 +3,9 @@
 
 #include "k4a_cuda.cuh"
 
+#define MEMORY_ALIGNMENT  4096
+#define ALIGN_UP(x,size) ( ((size_t)x+(size-1))&(~(size-1)) )
+
 using namespace testing;
 
 static K4A_CudaPointCloud* g_CPC;
@@ -11,6 +14,7 @@ class k4a_demo_ut : public ::testing::Test
 {
 protected:
 	float4* floats;
+	uint32_t* colors;
 
 	void SetUp() override
 	{
@@ -47,15 +51,27 @@ TEST_F(k4a_demo_ut, get_skeletons)
 
 TEST_F(k4a_demo_ut, get_floats)
 {
-	g_CPC->SetupPointCloud();
+	int dots = g_CPC->GetMaxPointCount();
+	floats = (float4*)malloc(sizeof(float4) * dots);
+	colors = (uint32_t*)malloc(sizeof(uint32_t) * dots);
+	float4* aligned_floats = (float4*)ALIGN_UP(floats, MEMORY_ALIGNMENT);
+	uint32_t* aligned_colors = (uint32_t*)ALIGN_UP(colors, MEMORY_ALIGNMENT);
+	g_CPC->SetupPointCloud(aligned_floats, aligned_colors);
 	for (int i = 0; i < 1024; i++)
 	{
 		g_CPC->GetCapture();
-		floats = g_CPC->GeneratePointCloud();
-		uint32_t* colors = g_CPC->GetPointColors();
+		g_CPC->GeneratePointCloud();
+		//g_CPC->GetPointColors();
 		uint32_t count = g_CPC->GetPointCount();
 
-		//printf("%d\n", count);
+		int check = 0;
+		for (int i = 0; i < count; i++)
+		{
+			if (aligned_floats[i].x != nanf("") && aligned_floats[i].z != 0.0F && aligned_colors[i] != 0)
+				check++;
+		}
+
+		ASSERT_EQ(count, check);
 	}
 }
 

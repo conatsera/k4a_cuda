@@ -32,6 +32,8 @@ add_subdirectory(extern)
 # Don't enable testing until after building dependencies
 enable_testing()
 
+find_library(CUDA_LIBRARY cuda ${CMAKE_CUDA_IMPLICIT_LINK_DIRECTORIES})
+
 # Get K4A SDKs
 find_library(K4A_SDK k4a "C:/Program Files/Azure Kinect SDK v1.1.0/sdk/windows-desktop/amd64/release/lib")
 find_library(K4ABT_SDK k4abt "C:/Program Files/Azure Kinect Body Tracking SDK/sdk/windows-desktop/amd64/release/lib")

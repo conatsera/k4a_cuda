@@ -38,10 +38,11 @@ public:
 
 	void GetCapture();
 
-	void SetupPointCloud();
-	float4* GeneratePointCloud();
-	uint32_t* GetPointColors();
+	void SetupPointCloud(float4** point_cloud, uint32_t** color_points);
+	void GeneratePointCloud();
+	//void GetPointColors();
 	uint32_t GetPointCount();
+	int GetMaxPointCount();
 	void ResetPointCloud();
 
 	void SetSkeletonGroup(k4a_skeleton_group_t* group_ref);
@@ -53,6 +54,7 @@ public:
 	uint32_t* GetSDKPointColors();
 #endif
 private:
+	CUcontext cuda_context;
 	k4a_device_t device = NULL;
 
 	k4a_calibration_t sensor_calibration;

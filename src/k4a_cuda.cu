@@ -232,6 +232,13 @@ K4A_CudaPointCloud::K4A_CudaPointCloud(bool color, bool body_tracking)
 
 	if (success)
 	{
+		CUdevice cuda_device;
+		cudaGetDevice(&cuda_device);
+
+		unsigned int cuda_flags = CUctx_flags::CU_CTX_SCHED_BLOCKING_SYNC + CUctx_flags::CU_CTX_MAP_HOST;
+
+		cuDevicePrimaryCtxSetFlags(cuda_device, cuda_flags);
+
 		CreateXYTable();
 
 		if (k4a_device_start_cameras(device, &device_config) != K4A_RESULT_SUCCEEDED)
@@ -299,31 +306,46 @@ void K4A_CudaPointCloud::GetCapture()
 float h_calibration_3d_to_3c[12];
 float h_calibration_3c_to_2c[15];
 
-void K4A_CudaPointCloud::SetupPointCloud()
+int K4A_CudaPointCloud::GetMaxPointCount()
+{
+	return dots;
+}
+
+void K4A_CudaPointCloud::SetupPointCloud(float4** point_cloud, uint32_t** color_points)
 {
 	cudaMalloc(&d_depth_data, depth_points * sizeof(uint16_t));
 	cudaMalloc(&d_xy_table, depth_points * sizeof(float2));
 	cudaMalloc(&d_point_cloud, dots * sizeof(float4));
 
-	cudaMalloc(&d_trimmed_color_points, dots * sizeof(uint32_t));
-	cudaMalloc(&d_trimmed_point_cloud, dots * sizeof(float4));
+	//cudaMalloc(&d_trimmed_color_points, dots * sizeof(uint32_t));
+	//cudaMalloc(&d_trimmed_point_cloud, dots * sizeof(float4));
 	cudaMalloc(&d_point_count, sizeof(unsigned int));
 
 	cudaMemcpy(d_xy_table, h_xy_table, depth_points * sizeof(float2), cudaMemcpyHostToDevice);
 
 	h_point_count = (unsigned int*)malloc(sizeof(unsigned int));
-	h_point_cloud = (float4*)malloc(dots * sizeof(float4));
+	//h_point_cloud = (float4*)malloc(dots * sizeof(float4));
+	h_point_cloud = (*point_cloud);
 	empty_cloud = (float4*)malloc(dots * sizeof(float4));
 	ConstantInitFloat4(empty_cloud, dots, make_float4(nanf(""), nanf(""), nanf(""), nanf("")));
 	memcpy(h_point_cloud, empty_cloud, dots * sizeof(float4));
+
+	cudaHostRegister(h_point_cloud, sizeof(float4) * dots, cudaHostRegisterMapped);
+
+	cudaHostGetDevicePointer<float4>(&d_trimmed_point_cloud, h_point_cloud, 0);
 
 	if (color_enabled)
 	{
 		int width = sensor_calibration.color_camera_calibration.resolution_width;
 		int height = sensor_calibration.color_camera_calibration.resolution_height;
 
-		h_color_points = (uint32_t*)malloc(dots * sizeof(uint32_t));
+		//h_color_points = (uint32_t*)malloc(dots * sizeof(uint32_t));
+		h_color_points = (*color_points);
 		h_dimensions = new int2(make_int2(width, height));
+
+		cudaHostRegister(h_color_points, sizeof(uint32_t) * dots, cudaHostRegisterMapped);
+
+		cudaHostGetDevicePointer<uint32_t>(&d_trimmed_color_points, h_color_points, 0);
 
 		cudaMalloc(&d_color_data, dots * sizeof(uint32_t));
 		cudaMalloc(&d_color_points, dots * sizeof(uint32_t));
@@ -350,7 +372,7 @@ void K4A_CudaPointCloud::SetupPointCloud()
 	}
 }
 
-float4* K4A_CudaPointCloud::GeneratePointCloud()
+void K4A_CudaPointCloud::GeneratePointCloud()
 {
 	// Probe for a depth16 image
 	depth_image = k4a_capture_get_depth_image(capture);
@@ -377,7 +399,7 @@ float4* K4A_CudaPointCloud::GeneratePointCloud()
 
 	memcpy(h_point_cloud, empty_cloud, dots * sizeof(float4));
 
-	cudaMemset(d_depth_data, 0, depth_points * sizeof(uint16_t));
+	//cudaMemset(d_depth_data, 0, depth_points * sizeof(uint16_t));
 
 	cudaMemset(d_point_cloud, 0, dots * sizeof(float4));
 
@@ -395,7 +417,7 @@ float4* K4A_CudaPointCloud::GeneratePointCloud()
 	{
 		h_color_data = (uint32_t*)(void*)k4a_image_get_buffer(color_image);
 
-		cudaMemset(d_color_data, 0, dots * sizeof(uint32_t));
+		//cudaMemset(d_color_data, 0, dots * sizeof(uint32_t));
 
 		cudaMemset(d_color_points, 0, dots * sizeof(uint32_t));
 
@@ -410,10 +432,6 @@ float4* K4A_CudaPointCloud::GeneratePointCloud()
 		k4a_image_release(color_image);
 	}
 
-	cudaMemset(d_trimmed_color_points, 0, dots * sizeof(uint32_t));
-
-	cudaMemset(d_trimmed_point_cloud, 0, dots * sizeof(float4));
-
 	cudaMemset(d_point_count, 0, sizeof(unsigned int));
 
 	if (color_enabled)
@@ -425,21 +443,7 @@ float4* K4A_CudaPointCloud::GeneratePointCloud()
 
 	cudaDeviceSynchronize();
 
-	cudaMemcpy(h_point_cloud, d_trimmed_point_cloud, (*h_point_count) * sizeof(float4), cudaMemcpyDeviceToHost);
-
-	if(color_enabled)
-		cudaMemcpy(h_color_points, d_trimmed_color_points, (*h_point_count) * sizeof(uint32_t), cudaMemcpyDeviceToHost);
-
-	cudaDeviceSynchronize();
-
 	k4a_image_release(depth_image);
-	
-	return h_point_cloud;
-}
-
-uint32_t* K4A_CudaPointCloud::GetPointColors()
-{
-	return h_color_points;
 }
 
 uint32_t K4A_CudaPointCloud::GetPointCount()

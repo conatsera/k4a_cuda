@@ -4,14 +4,13 @@ This library performs the point cloud calculation in CUDA as described in the SD
 
 # Script example
 ```c#
-    using System;
+using System;
 using System.Runtime.InteropServices;
 using UnityEngine;
 
 unsafe public class GenerateCloud : MonoBehaviour
 {
     ParticleSystem ps;
-
 
     [StructLayout(LayoutKind.Sequential)]
     public struct float4
@@ -29,50 +28,57 @@ unsafe public class GenerateCloud : MonoBehaviour
     static extern void get_capture();
 
     [DllImport("k4a_cuda_win.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    static extern void setup_point_cloud();
+    static extern void setup_point_cloud(ref float4[] point_positions, ref uint[] point_colors);
 
     [DllImport("k4a_cuda_win.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    static extern float4* get_point_cloud();
+    static extern void get_point_cloud();
 
     [DllImport("k4a_cuda_win.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    static extern uint* get_point_colors();
+    static extern uint get_point_count();
+
+    [DllImport("k4a_cuda_win.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern int get_max_point_count();
+
+    float4[] point_positions;
+    uint[] point_colors;
 
     void Start()
     {
         ps = GetComponent<ParticleSystem>();
 
-        // For color change to init_cpc(true, false) and uncomment color data lines below
-        init_cpc(false, false);
+        init_cpc(true, false);
 
-        setup_point_cloud();
+        int max_points = get_max_point_count();
+
+        point_positions = new float4[max_points];
+        point_colors = new uint[max_points];
+
+        GC.KeepAlive(point_positions);
+        GC.KeepAlive(point_colors);
+
+        setup_point_cloud(ref point_positions, ref point_colors);
     }
 
     void Update()
     {
         get_capture();
-        float4* points = get_point_cloud();
-        //uint* point_colors = get_point_colors();
-        // Note: A particle system may work in a pinch, but it is not designed to handle this amount of particles
-        // For a colored point cloud, you will have to cut 1/4 to 1/2 of the particles or Unity will not load
-        for (int i = 0; i < 262144; i++)
-        {
-            if (!float.IsNaN(points[i].x) && points[i].x != 0)
-            {
-                //byte[] color_bits = BitConverter.GetBytes(point_colors[i]);
-                
-                ParticleSystem.EmitParams ep = new ParticleSystem.EmitParams
-                {
-                    position = new Vector3(points[i].x, points[i].y, points[i].z),
-                    //startColor = new Color32(color_bits[2], color_bits[1], color_bits[0], color_bits[3])
-                };
+        get_point_cloud();
+        uint point_count = get_point_count();
 
-                ps.Emit(ep, 1);
-            }
+        for (int i = 0; i < point_count; i++)
+        {
+            byte[] color_bits = BitConverter.GetBytes(point_colors[i]);
+            ParticleSystem.EmitParams ep = new ParticleSystem.EmitParams
+            {
+                position = new Vector3(point_positions[i].x, point_positions[i].y, point_positions[i].z),
+                startColor = new Color32(color_bits[2], color_bits[1], color_bits[0], 0xFF)
+            };
+
+            ps.Emit(ep, 1);
         }
     }
 }
 ```
-
 ## Notes
 * This project has been build and tested using CUDA 10.1 and Visual Studio 16 2019
 * dnn_model.onnx is not path-searched and is required with your application (in "\<output\>/\<Name\>_Data/" for Unity)

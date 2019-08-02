@@ -1,10 +1,11 @@
 include(GoogleTest)
 
-add_executable(k4a_cuda_ut k4a_cuda_ut.cpp "${CMAKE_SOURCE_DIR}/src/k4a_cuda.cu" "${CMAKE_SOURCE_DIR}/src/k4a_cuda.cuh")
+add_executable(k4a_cuda_ut k4a_cuda_ut.cpp)
 
 target_compile_definitions(k4a_cuda_ut PRIVATE IS_TEST)
 
 target_link_libraries(k4a_cuda_ut PRIVATE
+	k4a_cuda
 	gtest::gtest
     gtest::gmock
 	${K4A_SDK}

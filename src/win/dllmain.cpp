@@ -19,24 +19,24 @@ extern "C" __declspec(dllexport) void get_capture()
 	area->GetCapture();
 }
 
-extern "C" __declspec(dllexport) void setup_point_cloud()
+extern "C" __declspec(dllexport) void setup_point_cloud(float4** point_cloud, uint32_t** point_colors)
 {
-	area->SetupPointCloud();
+	area->SetupPointCloud(point_cloud, point_colors);
 }
 
-extern "C" __declspec(dllexport) float4* get_point_cloud()
+extern "C" __declspec(dllexport) void get_point_cloud()
 {
-	return area->GeneratePointCloud();
-}
-
-extern "C" __declspec(dllexport) uint32_t* get_point_colors()
-{
-	return area->GetPointColors();
+	area->GeneratePointCloud();
 }
 
 extern "C" __declspec(dllexport) uint32_t get_point_count()
 {
 	return area->GetPointCount();
+}
+
+extern "C" __declspec(dllexport) int get_max_point_count()
+{
+	return area->GetMaxPointCount();
 }
 
 extern "C" __declspec(dllexport) int get_skeleton_count()
